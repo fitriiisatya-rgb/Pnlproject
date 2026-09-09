@@ -703,11 +703,11 @@ function faFinancialHealthScore(u, unitKey, pm, ctx){
 
   const dims = {
     revenueTrend: { score: faTrendScore(revTrend.label), weight: FA_CONFIG.health_score_weights.revenueTrend, detail: revTrend.label },
-    grossMargin: { score: faScoreFromDelta(kpiCur.grossMarginPct!=null&&gmB!=null?kpiCur.grossMarginPct-gmB:null, 1, FA_CONFIG.gross_margin_drop_threshold), weight: FA_CONFIG.health_score_weights.grossMargin, detail: kpiCur.grossMarginPct!=null?`${kpiCur.grossMarginPct.toFixed(1)}%`:'-' },
-    opexRatio: { score: faScoreFromDelta(kpiCur.opexRatioPct!=null&&opxB!=null?-(kpiCur.opexRatioPct-opxB):null, 1, FA_CONFIG.opex_ratio_threshold), weight: FA_CONFIG.health_score_weights.opexRatio, detail: kpiCur.opexRatioPct!=null?`${kpiCur.opexRatioPct.toFixed(1)}% dari pendapatan`:'-' },
-    payrollRatio: { score: faScoreFromDelta(payrollRatioCur!=null&&payrollRatioB!=null?-(payrollRatioCur-payrollRatioB):null, 1, FA_CONFIG.payroll_ratio_threshold), weight: FA_CONFIG.health_score_weights.payrollRatio, detail: payrollRatioCur!=null?`${payrollRatioCur.toFixed(1)}% dari pendapatan`:'Data tidak cukup' },
-    operatingMargin: { score: faScoreFromDelta(kpiCur.operatingMarginPct!=null&&omB!=null?kpiCur.operatingMarginPct-omB:null, 1, 3), weight: FA_CONFIG.health_score_weights.operatingMargin, detail: kpiCur.operatingMarginPct!=null?`${kpiCur.operatingMarginPct.toFixed(1)}%`:'-' },
-    netMargin: { score: faScoreFromDelta(kpiCur.netMarginPct!=null&&nmB!=null?kpiCur.netMarginPct-nmB:null, 1, 3), weight: FA_CONFIG.health_score_weights.netMargin, detail: kpiCur.netMarginPct!=null?`${kpiCur.netMarginPct.toFixed(1)}%`:'-' },
+    grossMargin: { score: faScoreFromDelta(kpiCur.grossMarginPct!=null&&gmB!=null?kpiCur.grossMarginPct-gmB:null, 1, FA_CONFIG.gross_margin_drop_threshold), weight: FA_CONFIG.health_score_weights.grossMargin, detail: kpiCur.grossMarginPct!=null?`${truncFixed(kpiCur.grossMarginPct,1)}%`:'-' },
+    opexRatio: { score: faScoreFromDelta(kpiCur.opexRatioPct!=null&&opxB!=null?-(kpiCur.opexRatioPct-opxB):null, 1, FA_CONFIG.opex_ratio_threshold), weight: FA_CONFIG.health_score_weights.opexRatio, detail: kpiCur.opexRatioPct!=null?`${truncFixed(kpiCur.opexRatioPct,1)}% dari pendapatan`:'-' },
+    payrollRatio: { score: faScoreFromDelta(payrollRatioCur!=null&&payrollRatioB!=null?-(payrollRatioCur-payrollRatioB):null, 1, FA_CONFIG.payroll_ratio_threshold), weight: FA_CONFIG.health_score_weights.payrollRatio, detail: payrollRatioCur!=null?`${truncFixed(payrollRatioCur,1)}% dari pendapatan`:'Data tidak cukup' },
+    operatingMargin: { score: faScoreFromDelta(kpiCur.operatingMarginPct!=null&&omB!=null?kpiCur.operatingMarginPct-omB:null, 1, 3), weight: FA_CONFIG.health_score_weights.operatingMargin, detail: kpiCur.operatingMarginPct!=null?`${truncFixed(kpiCur.operatingMarginPct,1)}%`:'-' },
+    netMargin: { score: faScoreFromDelta(kpiCur.netMarginPct!=null&&nmB!=null?kpiCur.netMarginPct-nmB:null, 1, 3), weight: FA_CONFIG.health_score_weights.netMargin, detail: kpiCur.netMarginPct!=null?`${truncFixed(kpiCur.netMarginPct,1)}%`:'-' },
     historicalTrend: { score: faTrendScore(npTrend.label), weight: FA_CONFIG.health_score_weights.historicalTrend, detail: npTrend.label },
     anomalies: { score: anomalyScore, weight: FA_CONFIG.health_score_weights.anomalies, detail: `${critCount} critical, ${watchCount} watch` },
     outletProfitability: { score: outletProfitScore, weight: FA_CONFIG.health_score_weights.outletProfitability, detail: unitKey==='konsolidasi' ? `${ctx.outletPerf?ctx.outletPerf.rows.filter(o=>o.classification==='CRITICAL'||o.classification==='WATCHLIST').length:0} outlet perlu perhatian${outletDataNote}` : (ctx.ownClassification||'-') },
@@ -847,10 +847,10 @@ function faGenerateInsights(ctx){
         outlet:r.label, pic:'Operations Manager', impact:Math.abs(r.netProfit||0), timing:'7 Hari', needsInvestigation:true });
     });
     outletPerf.rows.filter(r=>r.classification==='WATCHLIST').forEach(r=>{
-      redFlags.push({ text:`${r.label} masuk Watchlist — margin menurun dibanding rata-rata 3 bulan (${r.netMarginDeltaVs3mo!=null?r.netMarginDeltaVs3mo.toFixed(1)+' pp':'-'})`, impact:Math.abs(r.netProfit||0), severity:'watch' });
+      redFlags.push({ text:`${r.label} masuk Watchlist — margin menurun dibanding rata-rata 3 bulan (${r.netMarginDeltaVs3mo!=null?truncFixed(r.netMarginDeltaVs3mo,1)+' pp':'-'})`, impact:Math.abs(r.netProfit||0), severity:'watch' });
       actions.push({ priority:'Short Term — 30 Hari', issue:`${r.label} margin menurun`,
-        why:`Net margin turun ${r.netMarginDeltaVs3mo!=null?Math.abs(r.netMarginDeltaVs3mo).toFixed(1)+' pp':''} dibanding rata-rata 3 bulan — sinyal deteriorasi, belum tentu satu-off.`,
-        action:`Review struktur biaya ${r.label} karena net margin turun ${r.netMarginDeltaVs3mo!=null?Math.abs(r.netMarginDeltaVs3mo).toFixed(1)+' pp':''} dibanding rata-rata 3 bulan terakhir.`,
+        why:`Net margin turun ${r.netMarginDeltaVs3mo!=null?truncFixed(Math.abs(r.netMarginDeltaVs3mo),1)+' pp':''} dibanding rata-rata 3 bulan — sinyal deteriorasi, belum tentu satu-off.`,
+        action:`Review struktur biaya ${r.label} karena net margin turun ${r.netMarginDeltaVs3mo!=null?truncFixed(Math.abs(r.netMarginDeltaVs3mo),1)+' pp':''} dibanding rata-rata 3 bulan terakhir.`,
         outlet:r.label, pic:'Operations Manager', impact:Math.abs(r.netProfit||0)*0.5, timing:'30 Hari', needsInvestigation:true });
     });
     outletPerf.rows.filter(r=>r.classification==='STAR').forEach(r=>{
@@ -861,8 +861,8 @@ function faGenerateInsights(ctx){
   expenseRows.filter(r=>r.status.code==='critical' || r.status.code==='watch').slice(0,5).forEach(r=>{
     actions.push({ priority: r.status.code==='critical' ? 'Immediate — 7 Hari' : 'Short Term — 30 Hari',
       issue:`Biaya ${r.category} naik${r.variancePct!=null?' '+r.variancePct.toFixed(0)+'%':''} dibanding bulan lalu`,
-      why:`Berdampak ${fmtRp(Math.abs(r.varianceRp||0))} thd profit dan merupakan salah satu negative profit driver terbesar bulan ini${r.pctRevenue!=null?' ('+r.pctRevenue.toFixed(1)+'% dari pendapatan)':''}.`,
-      action:`Review kategori biaya ${r.category} karena naik dari ${fmtRp(r.prevMonth)} menjadi ${fmtRp(r.current)}${r.pctRevenue!=null?' ('+r.pctRevenue.toFixed(1)+'% dari pendapatan)':''} dan menjadi salah satu negative profit driver bulan ini.`,
+      why:`Berdampak ${fmtRp(Math.abs(r.varianceRp||0))} thd profit dan merupakan salah satu negative profit driver terbesar bulan ini${r.pctRevenue!=null?' ('+truncFixed(r.pctRevenue,1)+'% dari pendapatan)':''}.`,
+      action:`Review kategori biaya ${r.category} karena naik dari ${fmtRp(r.prevMonth)} menjadi ${fmtRp(r.current)}${r.pctRevenue!=null?' ('+truncFixed(r.pctRevenue,1)+'% dari pendapatan)':''} dan menjadi salah satu negative profit driver bulan ini.`,
       outlet: unitKey==='konsolidasi'?'Group':u.label, pic:'Finance Manager', impact:Math.abs(r.varianceRp||0),
       timing: r.status.code==='critical'?'7 Hari':'30 Hari', needsInvestigation:false });
   });
@@ -1054,7 +1054,7 @@ function faDeltaBadge(pct, goodIsUp){
   const flat = Math.abs(pct) < 0.5;
   const arrow = flat ? '→' : (pct>=0?'↑':'↓');
   const color = flat ? '#9B93C4' : (improving ? '#4ADE80' : '#FB7185');
-  return `<span style="color:${color};font-weight:700;">${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
+  return `<span style="color:${color};font-weight:700;">${arrow} ${truncFixed(Math.abs(pct),1)}%</span>`;
 }
 
 // Panel Period Filter -- dropdown inline di desktop, bottom-sheet penuh
@@ -1159,7 +1159,7 @@ function faRenderCards6(ctx){
     const deltaPct = (cur!=null && base!=null) ? cur-base : null;
     if (deltaPct==null) return `<span style="color:#726C9C;">→ n/a</span>`;
     const improving = goodUp ? deltaPct>=0 : deltaPct<=0;
-    return `<span style="color:${improving?'#4ADE80':'#FB7185'};font-weight:700;">${deltaPct>=0?'↑':'↓'} ${Math.abs(deltaPct).toFixed(1)}pp</span>`;
+    return `<span style="color:${improving?'#4ADE80':'#FB7185'};font-weight:700;">${deltaPct>=0?'↑':'↓'} ${truncFixed(Math.abs(deltaPct),1)}pp</span>`;
   };
   const vsLabel = cmpOpt ? `vs ${cmpOpt.label}` : '';
   const methodTag = pm.isOpen ? ` <span style="color:#4FC3F7;">(Proyeksi)</span>` : '';
@@ -1177,7 +1177,7 @@ function faRenderCards6(ctx){
   </div>`;
   const gmCard = `<div class="fa-card">
     <div class="fa-clabel">GP Margin</div>
-    <div class="fa-cval">${kpi.grossMarginPct!=null?kpi.grossMarginPct.toFixed(1)+'%':'-'}</div>
+    <div class="fa-cval">${kpi.grossMarginPct!=null?truncFixed(kpi.grossMarginPct,1)+'%':'-'}</div>
     <div class="fa-cdelta">${ppDelta(kpi.grossMarginPct, kpiBase.grossMarginPct, true)} <span style="color:#726C9C;">${vsLabel}</span></div>
   </div>`;
   const npCard = `<div class="fa-card" title="${faEsc(fmtRp(kpi.netProfit))}">
@@ -1187,7 +1187,7 @@ function faRenderCards6(ctx){
   </div>`;
   const nmCard = `<div class="fa-card">
     <div class="fa-clabel">Net Margin</div>
-    <div class="fa-cval">${kpi.netMarginPct!=null?kpi.netMarginPct.toFixed(1)+'%':'-'}</div>
+    <div class="fa-cval">${kpi.netMarginPct!=null?truncFixed(kpi.netMarginPct,1)+'%':'-'}</div>
     <div class="fa-cdelta">${ppDelta(kpi.netMarginPct, kpiBase.netMarginPct, true)} <span style="color:#726C9C;">${vsLabel}</span></div>
   </div>`;
 
@@ -1303,7 +1303,7 @@ function faRenderOutletAndActions(ctx){
     const tr = rows.map(r=>`<tr>
         <td style="padding:6px 10px;font-size:11.5px;">${faEsc(r.label)}</td>
         <td class="mono" style="padding:6px 10px;text-align:right;font-size:11px;">${fmtRp(r.netProfit)}</td>
-        <td class="mono" style="padding:6px 10px;text-align:right;font-size:11px;">${r.netMarginPct!=null?r.netMarginPct.toFixed(1)+'%':'-'}</td>
+        <td class="mono" style="padding:6px 10px;text-align:right;font-size:11px;">${r.netMarginPct!=null?truncFixed(r.netMarginPct,1)+'%':'-'}</td>
         <td style="padding:6px 10px;text-align:center;"><span style="background:${faClassColor(r.classification)}22;color:${faClassColor(r.classification)};border:1px solid ${faClassColor(r.classification)};border-radius:7px;padding:1px 6px;font-size:9.5px;font-weight:700;">${r.classification}</span></td>
       </tr>`).join('');
     outletCol = `<div class="fa-card" style="min-width:0;">
@@ -1476,7 +1476,7 @@ function faRenderExpenseTable(ctx){
       <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${r.avg3!=null?fmtRp(r.avg3):'-'}</td>
       <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${r.varianceRp!=null?fmtRp(r.varianceRp):'-'}</td>
       <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${r.variancePct!=null?fmtPct(r.variancePct):'-'}</td>
-      <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${r.pctRevenue!=null?r.pctRevenue.toFixed(1)+'%':'-'}</td>
+      <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${r.pctRevenue!=null?truncFixed(r.pctRevenue,1)+'%':'-'}</td>
       <td style="padding:10px 14px;text-align:center;font-size:12px;">${r.status.label}</td>
     </tr>`).join('');
   const body = `<div class="tbl-wrap"><table><thead><tr>
@@ -1497,7 +1497,7 @@ function faRenderAnomalyTable(ctx){
       <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${a.avg3!=null?fmtRp(a.avg3):'-'}</td>
       <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${fmtRp(a.varianceRp)}</td>
       <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${a.variancePct!=null?fmtPct(a.variancePct):'-'}</td>
-      <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${a.pctRevenue!=null?a.pctRevenue.toFixed(1)+'%':'-'}</td>
+      <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${a.pctRevenue!=null?truncFixed(a.pctRevenue,1)+'%':'-'}</td>
       <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;color:${a.profitImpact>=0?'#4ADE80':'#FB7185'};">${a.profitImpact>=0?'+':''}${fmtRp(a.profitImpact)}</td>
       <td style="padding:10px 14px;text-align:center;font-size:11.5px;">${a.severity}</td>
       <td style="padding:10px 14px;text-align:center;font-size:12px;">${a.status}</td>
@@ -1544,12 +1544,12 @@ function faRenderOutletPage(ctx){
       <td style="padding:10px 14px;font-size:12.5px;">${faEsc(r.label)}</td>
       <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${fmtRp(r.revenue)}</td>
       <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${r.growthPct!=null?fmtPct(r.growthPct):'-'}</td>
-      <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${r.grossMarginPct!=null?r.grossMarginPct.toFixed(1)+'%':'-'}</td>
-      <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${r.opexRatioPct!=null?r.opexRatioPct.toFixed(1)+'%':'-'}</td>
-      <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${r.payrollRatioPct!=null?r.payrollRatioPct.toFixed(1)+'%':'-'}</td>
+      <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${r.grossMarginPct!=null?truncFixed(r.grossMarginPct,1)+'%':'-'}</td>
+      <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${r.opexRatioPct!=null?truncFixed(r.opexRatioPct,1)+'%':'-'}</td>
+      <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${r.payrollRatioPct!=null?truncFixed(r.payrollRatioPct,1)+'%':'-'}</td>
       <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${fmtRp(r.netProfit)}</td>
-      <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${r.netMarginPct!=null?r.netMarginPct.toFixed(1)+'%':'-'}</td>
-      <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${r.contributionPct!=null?r.contributionPct.toFixed(1)+'%':'-'}</td>
+      <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${r.netMarginPct!=null?truncFixed(r.netMarginPct,1)+'%':'-'}</td>
+      <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${r.contributionPct!=null?truncFixed(r.contributionPct,1)+'%':'-'}</td>
       <td style="padding:10px 14px;font-size:11.5px;">${r.trend}</td>
       <td style="padding:10px 14px;text-align:center;"><span style="background:${faClassColor(r.classification)}22;color:${faClassColor(r.classification)};border:1px solid ${faClassColor(r.classification)};border-radius:8px;padding:2px 8px;font-size:10.5px;font-weight:700;">${r.classification}</span></td>
     </tr>`).join('');
@@ -1566,12 +1566,12 @@ function faRenderOutletPage(ctx){
   const rankings = `<div style="display:flex;flex-wrap:wrap;gap:20px;">
     ${rankBlock('Highest Revenue', rk.highestRevenue, 'revenue', fmtRp)}
     ${rankBlock('Highest Net Profit', rk.highestNetProfit, 'netProfit', fmtRp)}
-    ${rankBlock('Highest Net Margin', rk.highestNetMargin, 'netMarginPct', v=>v.toFixed(1)+'%')}
+    ${rankBlock('Highest Net Margin', rk.highestNetMargin, 'netMarginPct', v=>truncFixed(v,1)+'%')}
     ${rankBlock('Highest Growth', rk.highestGrowth, 'growthPct', v=>fmtPct(v))}
-    ${rankBlock('Biggest Improvement', rk.biggestImprovement, 'netMarginDeltaVs3mo', v=>v.toFixed(1)+'pp')}
-    ${rankBlock('Biggest Decline', rk.biggestDecline, 'netMarginDeltaVs3mo', v=>v.toFixed(1)+'pp')}
-    ${rankBlock('Highest Expense Ratio', rk.highestExpenseRatio, 'opexRatioPct', v=>v.toFixed(1)+'%')}
-    ${rankBlock('Lowest Profitability', rk.lowestProfitability, 'netMarginPct', v=>v.toFixed(1)+'%')}
+    ${rankBlock('Biggest Improvement', rk.biggestImprovement, 'netMarginDeltaVs3mo', v=>truncFixed(v,1)+'pp')}
+    ${rankBlock('Biggest Decline', rk.biggestDecline, 'netMarginDeltaVs3mo', v=>truncFixed(v,1)+'pp')}
+    ${rankBlock('Highest Expense Ratio', rk.highestExpenseRatio, 'opexRatioPct', v=>truncFixed(v,1)+'%')}
+    ${rankBlock('Lowest Profitability', rk.lowestProfitability, 'netMarginPct', v=>truncFixed(v,1)+'%')}
   </div>`;
   return faRenderReconciliation(ctx) + faCard('Outlet Performance', table) + faCard('Outlet Ranking (Top 5)', rankings);
 }
@@ -1579,8 +1579,8 @@ function faRenderOutletPage(ctx){
 /* ---- Forecast tab ---- */
 function faRenderForecastPage(ctx){
   const { forecast, pm } = ctx;
-  const margin = (obj)=> (obj && obj.revenue && obj.netProfit!=null) ? (obj.netProfit/obj.revenue*100).toFixed(1)+'%' : '-';
-  const gpMargin = (obj)=> (obj && obj.revenue && obj.grossProfit!=null) ? (obj.grossProfit/obj.revenue*100).toFixed(1)+'%' : '-';
+  const margin = (obj)=> (obj && obj.revenue && obj.netProfit!=null) ? truncFixed((obj.netProfit/obj.revenue*100),1)+'%' : '-';
+  const gpMargin = (obj)=> (obj && obj.revenue && obj.grossProfit!=null) ? truncFixed((obj.grossProfit/obj.revenue*100),1)+'%' : '-';
 
   // ACTUAL (solid, bold, putih) vs PROYEKSI (italic, badge biru, warna beda)
   // -- dibedakan SECARA VISUAL, bukan cuma teks label (poin 16 QA review).

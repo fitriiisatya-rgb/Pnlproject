@@ -2774,7 +2774,20 @@ function fmtRp(v){
   const sign = v<0?'-':'';
   return sign+Math.round(Math.abs(v)).toLocaleString('id-ID');
 }
-function fmtPct(v){ return (v>=0?'+':'')+v.toFixed(1)+'%'; }
+// Format % (atau poin persen) dgn DIPOTONG ke N desimal, BUKAN dibulatkan --
+// permintaan eksplisit user: 21,98% harus tampil "21,9%", bukan dibulatkan
+// jadi "22,0%" (toFixed() bawaan JS membulatkan). Dipakai utk SEMUA tampilan
+// %/poin di seluruh dashboard (index.php & financial-analysis.js -- file itu
+// dimuat SETELAH ini via <script>, jadi fungsi ini sudah tersedia sblm dipanggil)
+// spy konsisten, bukan cuma di satu tabel. fmtRp() di atas (Rupiah, tanpa
+// desimal) TIDAK terpengaruh -- ini murni utk nilai persentase/poin.
+function truncFixed(v, d){
+  if (v===null || v===undefined || !isFinite(v)) return (0).toFixed(d);
+  const factor = Math.pow(10, d);
+  const truncated = v<0 ? Math.ceil(v*factor)/factor : Math.floor(v*factor)/factor;
+  return truncated.toFixed(d);
+}
+function fmtPct(v){ return (v>=0?'+':'')+truncFixed(v,1)+'%'; }
 // gabungan Rp + % dari basis revenue, dipakai di sel tabel waterfall.
 // keyClass (opsional) = class tambahan utk span %, dipakai kolom Key (Konsolidasi)
 // utk mewarnai % aktual thd target (hijau/merah).
@@ -2782,7 +2795,7 @@ function fmtRpPct(v, basis, keyClass){
   if (v===null||v===undefined) return '-';
   const pct = basis ? (v/basis*100) : null;
   const cls = 'pctTag' + (keyClass ? ' '+keyClass : '');
-  const pctStr = (pct!==null && isFinite(pct)) ? ` <span class="${cls}">${pct.toFixed(1)}%</span>` : '';
+  const pctStr = (pct!==null && isFinite(pct)) ? ` <span class="${cls}">${truncFixed(pct,1)}%</span>` : '';
   return fmtRp(v) + pctStr;
 }
 
@@ -2984,7 +2997,7 @@ function renderKPIs(u){
     const up = delta!==null && delta>=0;
     return `<div class="kpi"><div class="bar" style="background:${u.color}"></div>
       <div class="lbl">${row.name}</div><div class="val mono">${fmtRp(v)}</div>
-      ${delta!==null?`<div class="delta ${up?'pos-delta':'neg-delta'}">${up?'▲':'▼'} ${Math.abs(delta).toFixed(1)}%</div>`:''}
+      ${delta!==null?`<div class="delta ${up?'pos-delta':'neg-delta'}">${up?'▲':'▼'} ${truncFixed(Math.abs(delta),1)}%</div>`:''}
     </div>`;
   }).join('') + `</div>`;
 }
@@ -3332,7 +3345,7 @@ function renderQS(u){
       const sum = b.indices.reduce((s,i)=> s + (row.values[i]===null?0:row.values[i]), 0);
       const empty = b.indices.every(i => row.values[i]===null);
       if (empty) return `<td class="mono" style="color:#4A4568;">-</td>`;
-      const pct = revTot[bi] ? `<span class="pctTag">${(sum/revTot[bi]*100).toFixed(1)}%</span>` : '';
+      const pct = revTot[bi] ? `<span class="pctTag">${truncFixed((sum/revTot[bi]*100),1)}%</span>` : '';
       return `<td class="mono ${sum<0?'neg':''}">${fmtRp(sum)} ${pct}</td>`;
     }).join('');
     const hl = (row.name==='Pendapatan'||row.name==='Laba Operasional') ? ' row-highlight' : '';
@@ -3390,9 +3403,9 @@ function renderQSAnalysis(u, buckets, revTot){
     const mCur = rCur? loCur/rCur*100:null, mPrev = rPrev? loPrev/rPrev*100:null;
     const hrCur = rCur? hCur/rCur*100:null, hrPrev = rPrev? hPrev/rPrev*100:null;
     let pts=[];
-    if(dRev!==null) pts.push(`Pendapatan ${curLbl}: <b>${fmtRp(rCur)}</b>, ${dRev>=0?'naik':'turun'} <b>${Math.abs(dRev).toFixed(1)}%</b> dari ${prevLbl} (${fmtRp(rPrev)}).`);
-    if(mCur!==null&&mPrev!==null) pts.push(`Margin Laba Operasional ${mCur>=mPrev?'membaik':'menurun'}: ${mPrev.toFixed(1)}% → <b>${mCur.toFixed(1)}%</b>.`);
-    if(hrCur!==null&&hrPrev!==null&&Math.abs(hrCur-hrPrev)>=0.5) pts.push(`Rasio HPP ${hrCur>hrPrev?'naik':'turun'} ${hrPrev.toFixed(1)}% → ${hrCur.toFixed(1)}% — ${hrCur>hrPrev?'menekan':'menopang'} margin.`);
+    if(dRev!==null) pts.push(`Pendapatan ${curLbl}: <b>${fmtRp(rCur)}</b>, ${dRev>=0?'naik':'turun'} <b>${truncFixed(Math.abs(dRev),1)}%</b> dari ${prevLbl} (${fmtRp(rPrev)}).`);
+    if(mCur!==null&&mPrev!==null) pts.push(`Margin Laba Operasional ${mCur>=mPrev?'membaik':'menurun'}: ${truncFixed(mPrev,1)}% → <b>${truncFixed(mCur,1)}%</b>.`);
+    if(hrCur!==null&&hrPrev!==null&&Math.abs(hrCur-hrPrev)>=0.5) pts.push(`Rasio HPP ${hrCur>hrPrev?'naik':'turun'} ${truncFixed(hrPrev,1)}% → ${truncFixed(hrCur,1)}% — ${hrCur>hrPrev?'menekan':'menopang'} margin.`);
     if(rCur) pts.push(`Sensitivitas: tiap 1 poin % perbaikan rasio HPP ≈ tambahan laba <b>${fmtRp(rCur*0.01)}</b> per ${modeLabel}.`);
     body = `<div style="font-size:12.5px;color:#F5F3FF;line-height:1.5;"><ul style="margin:0;padding-left:18px;">${pts.map(p=>`<li style="margin-bottom:5px;">${p}</li>`).join('')}</ul></div>`;
   }
@@ -3843,7 +3856,7 @@ function renderCabangFranchiseTable(outletKey, idxList, contextNote){
   const basis = d.jumlahPendapatan || 0;
   const cell = (val, hl) => {
     if (val === null || val === undefined) return `<td style="text-align:right;padding:8px 14px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;color:#4A4568;">–</td>`;
-    const pct = (basis && val!==0) ? `<span style="display:block;font-size:9.5px;color:#726C9C;">${(val/basis*100).toFixed(1)}%</span>` : '';
+    const pct = (basis && val!==0) ? `<span style="display:block;font-size:9.5px;color:#726C9C;">${truncFixed((val/basis*100),1)}%</span>` : '';
     return `<td class="mono ${val<0?'neg':''}" style="text-align:right;padding:8px 14px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;white-space:nowrap;font-weight:${hl?700:400};">${val===0?'–':fmtRp(val)}${pct}</td>`;
   };
   const row = (label, on, off, kons, tot, opts={}) => `<tr style="${opts.superHl?'background:#122E2B;border-left:3px solid #22D3C5;':(opts.hl?'background:#1C1840;':'')}">
@@ -3939,7 +3952,7 @@ function renderCabangFranchiseCompareBlock(idxList, blockLabel){
   }
   // tiap sel: nilai Rupiah + % thd Omset di bawahnya (kecuali Omset sendiri = 100%)
   const cell = (v, base, hl) => {
-    const pct = base ? `<span style="display:block;font-size:9.5px;color:#726C9C;">${(v/base*100).toFixed(1)}%</span>` : '';
+    const pct = base ? `<span style="display:block;font-size:9.5px;color:#726C9C;">${truncFixed((v/base*100),1)}%</span>` : '';
     return `<td class="mono ${v<0?'neg':''}" style="text-align:right;padding:9px 14px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;white-space:nowrap;${hl?'background:#122E2B;font-weight:700;':''}">${fmtRp(v)}${pct}</td>`;
   };
   let body = withData.map(r => {
@@ -4043,7 +4056,7 @@ function renderOnlineOfflineSplit(u, idxList, contextNote){
 
   const cellSplit = (val, hl) => {
     if (val === null) return `<td style="text-align:right;padding:8px 14px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;color:#4A4568;">–</td>`;
-    const pct = (basis && val!==0) ? `<span style="display:block;font-size:9.5px;color:#726C9C;">${(val/basis*100).toFixed(1)}%</span>` : '';
+    const pct = (basis && val!==0) ? `<span style="display:block;font-size:9.5px;color:#726C9C;">${truncFixed((val/basis*100),1)}%</span>` : '';
     return `<td class="mono ${val<0?'neg':''}" style="text-align:right;padding:8px 14px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;white-space:nowrap;font-weight:${hl?700:400};">${val===0?'–':fmtRp(val)}${pct}</td>`;
   };
 
@@ -4128,7 +4141,7 @@ function renderChannelSplit(u, idxList, contextNote){
     ['Laba Operasional Franchise', fra.labaOps, true],
   ];
   const body = rows.map(([label,val,hl,est])=>{
-    const pct = fra.pend ? (val/fra.pend*100).toFixed(1)+'%' : '';
+    const pct = fra.pend ? truncFixed((val/fra.pend*100),1)+'%' : '';
     return `<tr style="${hl?'background:#1C1840;':''}">
       <td style="padding:9px 14px;font-size:12.5px;color:${hl?'#FFC93C':'#F5F3FF'};font-weight:${hl?700:400};border-bottom:1px solid #2A2650;">${label}${est?' <span style="color:#FFC93C;">⚠</span>':''}</td>
       <td class="mono ${val<0?'neg':''}" style="padding:9px 14px;text-align:right;border-bottom:1px solid #2A2650;font-weight:${hl?700:400};">${fmtRp(val)}</td>
@@ -4164,7 +4177,7 @@ function renderExecSection(u){
     if (!vals) return '';
     const tot = vIdx.reduce((s,i)=>s+(vals[i]||0),0);
     const headline = multi ? tot : vals[last];
-    const pctRev = revTot ? (tot/revTot*100).toFixed(1)+'% dari Pendapatan' : '';
+    const pctRev = revTot ? truncFixed((tot/revTot*100),1)+'% dari Pendapatan' : '';
     const avgLine = multi ? `Total ${vIdx.length} bln · rata² ${fmtRp(tot/vIdx.length)}/bln` : '';
     const delta = (prev!==undefined) ? fmtDeltaPct(vals[last], vals[prev]) : null;
     const up = delta!==null && delta>=0;
@@ -4175,7 +4188,7 @@ function renderExecSection(u){
       <div class="mono" style="font-size:20px;font-weight:700;margin:6px 0 2px;">${fmtRp(headline)}</div>
       <div style="font-size:10.5px;color:#726C9C;">${pctRev}</div>
       ${avgLine?`<div style="font-size:10.5px;color:#726C9C;">${avgLine}</div>`:''}
-      ${delta!==null?`<div style="font-size:11.5px;font-weight:600;color:${deltaColor};margin-top:6px;">${up?'▲':'▼'} ${Math.abs(delta).toFixed(1)}% ${multi?periodLabel(PERIODS[last],false)+' ':''}vs ${periodLabel(PERIODS[prev],false)}</div>`:''}
+      ${delta!==null?`<div style="font-size:11.5px;font-weight:600;color:${deltaColor};margin-top:6px;">${up?'▲':'▼'} ${truncFixed(Math.abs(delta),1)}% ${multi?periodLabel(PERIODS[last],false)+' ':''}vs ${periodLabel(PERIODS[prev],false)}</div>`:''}
     </div>`;
   }).join('');
   return `<div style="margin-bottom:18px;">
@@ -4316,7 +4329,7 @@ function renderLeakRingkas(){
   const pend = sum(L.pend), dis = sum(L.diskon), kom = sum(L.komisi);
   const total = dis + kom, neto = pend - total;
   if (!pend) return `<div style="background:#171433;border:1px solid #2A2650;border-radius:12px;padding:18px;color:#9B93C4;font-size:12.5px;">Tidak ada data Pendapatan Konsolidasi utk periode terpilih.</div>`;
-  const pct = (v) => pend ? (v/pend*100).toFixed(1)+'%' : '-';
+  const pct = (v) => pend ? truncFixed((v/pend*100),1)+'%' : '-';
 
   // Bridge bruto -> neto
   const bridgeRow = (label, val, colorHex, isSub) => `<tr style="${isSub?'background:#1C1840;':''}">
@@ -4333,9 +4346,9 @@ function renderLeakRingkas(){
     return `<tr>
       <td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid #2A2650;">${periodLabel(p,true)}</td>
       <td class="mono" style="text-align:right;padding:8px 14px;border-bottom:1px solid #2A2650;white-space:nowrap;">${fmtRp(L.pend[i])}</td>
-      <td class="mono" style="text-align:right;padding:8px 14px;border-bottom:1px solid #2A2650;white-space:nowrap;">${fmtRp(d)}<span style="display:block;font-size:9.5px;color:#726C9C;">${dp.toFixed(1)}%</span></td>
-      <td class="mono" style="text-align:right;padding:8px 14px;border-bottom:1px solid #2A2650;white-space:nowrap;">${fmtRp(k)}<span style="display:block;font-size:9.5px;color:#726C9C;">${kp.toFixed(1)}%</span></td>
-      <td class="mono" style="text-align:right;padding:8px 14px;border-bottom:1px solid #2A2650;white-space:nowrap;color:#F97316;font-weight:700;">${fmtRp(t)}<span style="display:block;font-size:9.5px;color:#726C9C;">${tp.toFixed(1)}%</span></td>
+      <td class="mono" style="text-align:right;padding:8px 14px;border-bottom:1px solid #2A2650;white-space:nowrap;">${fmtRp(d)}<span style="display:block;font-size:9.5px;color:#726C9C;">${truncFixed(dp,1)}%</span></td>
+      <td class="mono" style="text-align:right;padding:8px 14px;border-bottom:1px solid #2A2650;white-space:nowrap;">${fmtRp(k)}<span style="display:block;font-size:9.5px;color:#726C9C;">${truncFixed(kp,1)}%</span></td>
+      <td class="mono" style="text-align:right;padding:8px 14px;border-bottom:1px solid #2A2650;white-space:nowrap;color:#F97316;font-weight:700;">${fmtRp(t)}<span style="display:block;font-size:9.5px;color:#726C9C;">${truncFixed(tp,1)}%</span></td>
     </tr>`;
   }).join('');
 
@@ -4398,8 +4411,8 @@ function renderLeakJenis(){
         <span style="display:inline-block;padding:2px 7px;border-radius:5px;font-size:9.5px;font-weight:700;margin-right:8px;background:${it.kind==='Komisi'?'#A78BFA22':'#FB718522'};color:${it.kind==='Komisi'?'#A78BFA':'#FB7185'};">${it.kind}</span>${it.label}
       </td>
       <td class="mono" style="text-align:right;padding:8px 14px;border-bottom:1px solid #2A2650;white-space:nowrap;">${fmtRp(it.value)}</td>
-      <td class="mono" style="text-align:right;padding:8px 14px;border-bottom:1px solid #2A2650;white-space:nowrap;">${share.toFixed(1)}%</td>
-      <td class="mono" style="text-align:right;padding:8px 14px;border-bottom:1px solid #2A2650;white-space:nowrap;color:${cumPct<=80?'#F97316':'#726C9C'};">${cumPct.toFixed(1)}%</td>
+      <td class="mono" style="text-align:right;padding:8px 14px;border-bottom:1px solid #2A2650;white-space:nowrap;">${truncFixed(share,1)}%</td>
+      <td class="mono" style="text-align:right;padding:8px 14px;border-bottom:1px solid #2A2650;white-space:nowrap;color:${cumPct<=80?'#F97316':'#726C9C'};">${truncFixed(cumPct,1)}%</td>
     </tr>`;
   }).join('');
   const n80 = (() => { let c=0,n=0; for (const it of items){ c+=it.value; n++; if (total && c/total>=0.8) break; } return n; })();
@@ -4443,17 +4456,17 @@ function renderLeakOutlet(){
     return `<tr>
       <td style="padding:8px 14px;font-size:12.5px;font-weight:600;border-bottom:1px solid #2A2650;">${d.label}</td>
       <td class="mono" style="text-align:right;padding:8px 14px;border-bottom:1px solid #2A2650;white-space:nowrap;">${fmtRp(d.pend)}</td>
-      <td class="mono" style="text-align:right;padding:8px 14px;border-bottom:1px solid #2A2650;white-space:nowrap;">${d.disPct.toFixed(1)}%</td>
-      <td class="mono" style="text-align:right;padding:8px 14px;border-bottom:1px solid #2A2650;white-space:nowrap;">${d.komPct.toFixed(1)}%</td>
-      <td class="mono" style="text-align:right;padding:8px 14px;border-bottom:1px solid #2A2650;white-space:nowrap;font-weight:700;color:${above?'#FB7185':'#4ADE80'};">${d.totPct.toFixed(1)}%</td>
+      <td class="mono" style="text-align:right;padding:8px 14px;border-bottom:1px solid #2A2650;white-space:nowrap;">${truncFixed(d.disPct,1)}%</td>
+      <td class="mono" style="text-align:right;padding:8px 14px;border-bottom:1px solid #2A2650;white-space:nowrap;">${truncFixed(d.komPct,1)}%</td>
+      <td class="mono" style="text-align:right;padding:8px 14px;border-bottom:1px solid #2A2650;white-space:nowrap;font-weight:700;color:${above?'#FB7185':'#4ADE80'};">${truncFixed(d.totPct,1)}%</td>
       <td class="mono" style="text-align:right;padding:8px 14px;border-bottom:1px solid #2A2650;white-space:nowrap;color:#9B93C4;">${fmtRp(d.total)}</td>
     </tr>`;
   }).join('');
 
   return `
     <div style="background:#1C1840;border:1px solid #2A2650;border-radius:10px;padding:14px 16px;margin-bottom:16px;font-size:12px;color:#C9C3E8;line-height:1.6;">
-      Rata-rata tertimbang kebocoran: <b style="color:#F97316;">${avg.toFixed(1)}%</b> dari pendapatan.
-      Terburuk <b style="color:#FB7185;">${worst.label} (${worst.totPct.toFixed(1)}%)</b>, terbaik <b style="color:#4ADE80;">${best.label} (${best.totPct.toFixed(1)}%)</b> -- selisih <b>${(worst.totPct-best.totPct).toFixed(1)} poin</b>.<br>
+      Rata-rata tertimbang kebocoran: <b style="color:#F97316;">${truncFixed(avg,1)}%</b> dari pendapatan.
+      Terburuk <b style="color:#FB7185;">${worst.label} (${truncFixed(worst.totPct,1)}%)</b>, terbaik <b style="color:#4ADE80;">${best.label} (${truncFixed(best.totPct,1)}%)</b> -- selisih <b>${truncFixed((worst.totPct-best.totPct),1)} poin</b>.<br>
       Kalau semua outlet di atas rata-rata bisa ditarik ke level rata-rata saja, potensi penghematan periode ini <b style="color:#4ADE80;">${fmtRp(potensi)}</b>.
       <span style="color:#726C9C;">Catatan: sebagian selisih bisa wajar (beda kanal/lokasi/bauran produk) -- angka ini penunjuk arah investigasi, bukan target otomatis.</span>
     </div>
@@ -4568,8 +4581,8 @@ function runRekonsiliasi(){
   const junIdx = PERIODS.length-1;
   const L = leakageByPeriod('Konsolidasi');
   const leakPct = L.pend[junIdx] ? (L.diskon[junIdx]+L.komisi[junIdx])/L.pend[junIdx]*100 : 0;
-  if (leakPct > 25) add('warn', `Kebocoran periode terakhir tinggi: ${leakPct.toFixed(1)}%`, 'Diskon + komisi melebihi 25% pendapatan bruto. Cek modul Kebocoran Pendapatan.');
-  else if (leakPct > 0) add('ok', `Kebocoran periode terakhir: ${leakPct.toFixed(1)}%`, 'Masih di bawah ambang perhatian 25%. Detail ada di modul Kebocoran Pendapatan.');
+  if (leakPct > 25) add('warn', `Kebocoran periode terakhir tinggi: ${truncFixed(leakPct,1)}%`, 'Diskon + komisi melebihi 25% pendapatan bruto. Cek modul Kebocoran Pendapatan.');
+  else if (leakPct > 0) add('ok', `Kebocoran periode terakhir: ${truncFixed(leakPct,1)}%`, 'Masih di bawah ambang perhatian 25%. Detail ada di modul Kebocoran Pendapatan.');
 
   return checks;
 }
@@ -4737,7 +4750,7 @@ function renderCompareCustom(mode){
 
     const fmtCell = (c)=>{
       if (c.v==null) return `<td style="text-align:right;padding:8px 12px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;color:#4A4568;">–</td>`;
-      const sub = s.pct && c.pct!=null ? `<span style="display:block;font-size:9.5px;color:#726C9C;">${c.pct.toFixed(1)}%</span>` : '';
+      const sub = s.pct && c.pct!=null ? `<span style="display:block;font-size:9.5px;color:#726C9C;">${truncFixed(c.pct,1)}%</span>` : '';
       return `<td class="mono ${c.v<0?'neg':''}" style="text-align:right;padding:8px 12px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;white-space:nowrap;">${fmtRp(c.v)}${sub}</td>`;
     };
     body = `
@@ -4896,7 +4909,7 @@ function cdPanelHtml(judul, warna, rows, catatan){
   const body = rows ? rows.map(r=>`<tr style="${r.hl?'background:#1C1840;':(r.sub?'background:#141130;':'')}">
       <td style="padding:7px 12px;font-size:12px;color:${r.hl?'#FFC93C':(r.sub?'#9B93C4':'#F5F3FF')};font-weight:${r.hl?700:(r.sub?600:400)};border-bottom:1px solid #2A2650;${r.sub?'border-top:1px solid #3A3560;padding-left:20px;':''}">${r.sub?'↳ ':''}${r.name}${r.est?'<span class="cd-est-tag">EST</span>':''}</td>
       <td class="mono ${r.v<0?'neg':''}" style="text-align:right;padding:7px 12px;border-bottom:1px solid #2A2650;white-space:nowrap;font-weight:${r.hl||r.sub?700:400};${r.sub?'border-top:1px solid #3A3560;':''}">${r.v==null?'–':fmtRp(r.v)}</td>
-      <td class="mono" style="text-align:right;padding:7px 12px;border-bottom:1px solid #2A2650;color:#726C9C;font-size:10.5px;white-space:nowrap;${r.sub?'border-top:1px solid #3A3560;':''}">${r.pct==null||r.v===0?'':r.pct.toFixed(1)+'%'}</td>
+      <td class="mono" style="text-align:right;padding:7px 12px;border-bottom:1px solid #2A2650;color:#726C9C;font-size:10.5px;white-space:nowrap;${r.sub?'border-top:1px solid #3A3560;':''}">${r.pct==null||r.v===0?'':truncFixed(r.pct,1)+'%'}</td>
     </tr>`).join('')
     : `<tr><td colspan="3" style="padding:20px;text-align:center;color:#9B93C4;font-size:12px;">Belum ada data sheet Online utk bakery/periode ini, jadi versi Franchise tak bisa dihitung.</td></tr>`;
   return `<div class="cd-panel" style="border-color:${warna};">
@@ -4937,8 +4950,8 @@ function cdSummaryAndGapHtml(blk){
   const cards = `<div class="fa-cards5">
     <div class="fa-card"><div class="fa-clabel">Omzet Biasa</div><div class="fa-cval">${faCompactRp(omset.b)}</div><div class="fa-cdelta" style="color:#726C9C;">Total periode terpilih</div></div>
     <div class="fa-card"><div class="fa-clabel">Omzet Franchise</div><div class="fa-cval">${omset.f!=null?faCompactRp(omset.f):'-'}</div><div class="fa-cdelta">${omset.pct!=null?faDeltaBadge(omset.pct,true):'<span style="color:#726C9C;">-</span>'}</div></div>
-    <div class="fa-card"><div class="fa-clabel">Gap Omzet</div><div class="fa-cval">${omset.pct!=null?(omset.pct>=0?'+':'')+omset.pct.toFixed(1)+'%':'-'}</div><div class="fa-cdelta" style="color:#726C9C;">${omset.pct!=null && Math.abs(omset.pct)<5?'Relatif dekat':''}</div></div>
-    <div class="fa-card"><div class="fa-clabel">Gap Laba Bersih</div><div class="fa-cval">${nb.diff!=null?faCompactRp(Math.abs(nb.diff)):'-'}</div><div class="fa-cdelta" style="color:${nb.big?'#FB7185':'#4ADE80'};font-weight:700;">${nb.pct!=null?Math.abs(nb.pct).toFixed(1)+'%':'-'}</div></div>
+    <div class="fa-card"><div class="fa-clabel">Gap Omzet</div><div class="fa-cval">${omset.pct!=null?(omset.pct>=0?'+':'')+truncFixed(omset.pct,1)+'%':'-'}</div><div class="fa-cdelta" style="color:#726C9C;">${omset.pct!=null && Math.abs(omset.pct)<5?'Relatif dekat':''}</div></div>
+    <div class="fa-card"><div class="fa-clabel">Gap Laba Bersih</div><div class="fa-cval">${nb.diff!=null?faCompactRp(Math.abs(nb.diff)):'-'}</div><div class="fa-cdelta" style="color:${nb.big?'#FB7185':'#4ADE80'};font-weight:700;">${nb.pct!=null?truncFixed(Math.abs(nb.pct),1)+'%':'-'}</div></div>
     <div class="fa-card"><div class="fa-clabel">Data Confidence</div><div class="fa-cval" style="font-size:15px;color:${confColor};">${confidence}</div><div class="fa-cdelta" style="color:#726C9C;">${hasF?'Franchise berisi estimasi':'Belum ada data Online'}</div></div>
   </div>`;
 
@@ -4949,7 +4962,7 @@ function cdSummaryAndGapHtml(blk){
         <td class="mono" style="padding:8px 10px;text-align:right;font-size:11px;">${r.b==null?'-':fmtRp(r.b)}</td>
         <td class="mono" style="padding:8px 10px;text-align:right;font-size:11px;">${r.f==null?'-':fmtRp(r.f)}</td>
         <td class="mono" style="padding:8px 10px;text-align:right;font-size:11px;color:${r.diff==null?'#4A4568':(r.big?'#FB7185':'#4ADE80')};">${r.diff==null?'-':(r.diff>=0?'+':'')+fmtRp(r.diff)}</td>
-        <td class="mono" style="padding:8px 10px;text-align:right;font-size:11px;">${r.pct==null?'-':r.pct.toFixed(1)+'%'}</td>
+        <td class="mono" style="padding:8px 10px;text-align:right;font-size:11px;">${r.pct==null?'-':truncFixed(r.pct,1)+'%'}</td>
         <td style="padding:8px 10px;text-align:center;">${cdStatusBadge(r.pct==null?null:Math.abs(r.pct))}</td>
       </tr>`).join('')}</tbody>
   </table></div>`;
@@ -4959,12 +4972,12 @@ function cdSummaryAndGapHtml(blk){
   const npGapAbs = nb.pct!=null ? Math.abs(nb.pct) : null;
   const insights = [];
   insights.push(revGapAbs!=null
-    ? `<b>Revenue gap ${revGapAbs<10?'kecil':'material'}.</b> Omzet Biasa dan Franchise berbeda sekitar ${revGapAbs.toFixed(1)}%.`
+    ? `<b>Revenue gap ${revGapAbs<10?'kecil':'material'}.</b> Omzet Biasa dan Franchise berbeda sekitar ${truncFixed(revGapAbs,1)}%.`
     : `<b>Omzet Franchise belum bisa dihitung.</b> Bakery ini belum punya data sheet Online utk periode terpilih.`);
   if (npGapAbs!=null && revGapAbs!=null){
     insights.push(npGapAbs > revGapAbs * 1.5
-      ? `<b>Profit gap lebih besar dari revenue gap.</b> Selisih Laba Bersih ${npGapAbs.toFixed(1)}% menunjukkan gap utamanya di struktur margin/cost (HPP, diskon), bukan di omzet.`
-      : `<b>Profit gap sejalan dgn revenue gap.</b> Selisih Laba Bersih (${npGapAbs.toFixed(1)}%) relatif konsisten dgn selisih omzet, tak ada indikasi anomali struktur cost.`);
+      ? `<b>Profit gap lebih besar dari revenue gap.</b> Selisih Laba Bersih ${truncFixed(npGapAbs,1)}% menunjukkan gap utamanya di struktur margin/cost (HPP, diskon), bukan di omzet.`
+      : `<b>Profit gap sejalan dgn revenue gap.</b> Selisih Laba Bersih (${truncFixed(npGapAbs,1)}%) relatif konsisten dgn selisih omzet, tak ada indikasi anomali struktur cost.`);
   }
   insights.push(`<b>Needs Investigation.</b> Cek HPP (Biasa = angka tercatat, Franchise = estimasi 60% dari omzet), diskon, struktur pendapatan channel, serta mapping sebelum menyimpulkan penyebab final.`);
   const insightHtml = insights.map(t=>`<div class="fa-insight">${t}</div>`).join('');
@@ -4988,9 +5001,9 @@ function cdRankingHtml(selOutlets, selMonths){
   const noData = blocks.filter(b=>!b.blk.rowsFr);
   const rankItem = (label, item, fmt)=> `<div class="fa-mini"><span>${label}</span><b>${item?`${item.blk.label} · ${fmt(item.blk)}`:'-'}</b></div>`;
   const items = [
-    rankItem('Biggest Net Profit Gap', biggestNp, b=>Math.abs(b.ringkas[3].pct).toFixed(1)+'%'),
-    rankItem('Biggest GP Gap', biggestGp, b=>Math.abs(b.ringkas[1].pct).toFixed(1)+'%'),
-    rankItem('Closest Match', closest, b=>Math.abs(b.ringkas[3].pct).toFixed(1)+'%'),
+    rankItem('Biggest Net Profit Gap', biggestNp, b=>truncFixed(Math.abs(b.ringkas[3].pct),1)+'%'),
+    rankItem('Biggest GP Gap', biggestGp, b=>truncFixed(Math.abs(b.ringkas[1].pct),1)+'%'),
+    rankItem('Closest Match', closest, b=>truncFixed(Math.abs(b.ringkas[3].pct),1)+'%'),
     `<div class="fa-mini"><span>Data Warning</span><b style="color:${noData.length?'#FFC93C':'#4ADE80'};">${noData.length?noData.map(b=>b.blk.label).join(', ')+' · Check':'Semua lengkap'}</b></div>`,
   ].join('');
   return faCard('Ranking Saat Banyak Bakery Dipilih', `<div class="fa-mini4">${items}</div><div style="font-size:10.5px;color:#726C9C;margin-top:8px;">Default tidak me-render puluhan blok detail sekaligus -- gunakan Ringkasan Selisih &amp; panel detail per-bakery di bawah utk investigasi lanjutan.</div>`);
@@ -5041,7 +5054,7 @@ function renderCabangDiff(){
         <td class="mono ${r.b<0?'neg':''}" style="text-align:right;padding:8px 12px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;white-space:nowrap;color:#4ADE80;">${r.b==null?'–':fmtRp(r.b)}</td>
         <td class="mono ${r.f<0?'neg':''}" style="text-align:right;padding:8px 12px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;white-space:nowrap;color:#22D3C5;">${r.f==null?'–':fmtRp(r.f)}</td>
         <td class="mono" style="text-align:right;padding:8px 12px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;white-space:nowrap;font-weight:700;color:${r.diff==null?'#4A4568':(r.big?'#FB7185':'#9B93C4')};">${r.diff==null?'–':fmtRp(r.diff)}</td>
-        <td class="mono" style="text-align:right;padding:8px 12px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;white-space:nowrap;color:${r.diff==null?'#4A4568':(r.big?'#FB7185':'#9B93C4')};">${r.pct==null?'–':(r.big?'⚠ ':'')+r.pct.toFixed(1)+'%'}</td>
+        <td class="mono" style="text-align:right;padding:8px 12px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;white-space:nowrap;color:${r.diff==null?'#4A4568':(r.big?'#FB7185':'#9B93C4')};">${r.pct==null?'–':(r.big?'⚠ ':'')+truncFixed(r.pct,1)+'%'}</td>
       </tr>`).join('');
     const inlineRingkasan = showInlineRingkasan ? `<div style="background:#171433;border:1px solid #2A2650;border-radius:12px;padding:16px 18px;margin-bottom:14px;overflow-x:auto;">
         <div style="font-family:'Space Grotesk',sans-serif;font-size:12.5px;font-weight:700;color:#E066FF;margin-bottom:10px;">RINGKASAN SELISIH · ${periodeTxt}</div>
@@ -5529,7 +5542,7 @@ function renderSvgLineChart(containerId, datasets, labels, opts={}){
     }
     ds.data.forEach((v,i) => {
       if (v==null) return;
-      svg += `<circle cx="${xAt(i)}" cy="${yFn(v)}" r="3" fill="${ds.color}"><title>${ds.label}: ${labels[i]} = ${opts.dualAxis && ds.isCost ? v.toFixed(1)+'%' : fmtRp(v)}</title></circle>`;
+      svg += `<circle cx="${xAt(i)}" cy="${yFn(v)}" r="3" fill="${ds.color}"><title>${ds.label}: ${labels[i]} = ${opts.dualAxis && ds.isCost ? truncFixed(v,1)+'%' : fmtRp(v)}</title></circle>`;
     });
   });
   svg += `</svg>`;
@@ -5657,22 +5670,22 @@ function renderAnalysisCard(u){
     const totRev = vIdx.reduce((s,i)=>s+(rev[i]||0),0);
     apa.push(`Total Pendapatan periode terpilih: <b>${fmtRp(totRev)}</b> (rata-rata ${fmtRp(totRev/vIdx.length)}/bulan).`);
     const g = fmtDeltaPct(rev[last], rev[first]);
-    if (g!==null) apa.push(`Pendapatan ${mL(last)} ${g>=0?'lebih tinggi':'lebih rendah'} <b>${Math.abs(g).toFixed(1)}%</b> dibanding ${mL(first)} (awal periode terpilih).`);
+    if (g!==null) apa.push(`Pendapatan ${mL(last)} ${g>=0?'lebih tinggi':'lebih rendah'} <b>${truncFixed(Math.abs(g),1)}%</b> dibanding ${mL(first)} (awal periode terpilih).`);
     if (lo) {
       const margins = vIdx.filter(i=>lo[i]!=null && rev[i]).map(i=>({i, m: lo[i]/rev[i]*100}));
       if (margins.length>1) {
         const best = margins.reduce((a,b)=>b.m>a.m?b:a);
         const worst = margins.reduce((a,b)=>b.m<a.m?b:a);
-        apa.push(`Margin Laba Operasional terbaik: <b>${mL(best.i)}</b> (${best.m.toFixed(1)}%); terlemah: ${mL(worst.i)} (${worst.m.toFixed(1)}%).`);
+        apa.push(`Margin Laba Operasional terbaik: <b>${mL(best.i)}</b> (${truncFixed(best.m,1)}%); terlemah: ${mL(worst.i)} (${truncFixed(worst.m,1)}%).`);
       }
     }
     if (prev!==undefined && lo && lo[last]!=null && lo[prev]!=null) {
       const d = fmtDeltaPct(lo[last], lo[prev]);
-      if (d!==null) apa.push(`Bulan terakhir terpilih (${mL(last)}): Laba Operasional <b>${fmtRp(lo[last])}</b>, ${d>=0?'naik':'turun'} ${Math.abs(d).toFixed(1)}% vs ${mL(prev)}.`);
+      if (d!==null) apa.push(`Bulan terakhir terpilih (${mL(last)}): Laba Operasional <b>${fmtRp(lo[last])}</b>, ${d>=0?'naik':'turun'} ${truncFixed(Math.abs(d),1)}% vs ${mL(prev)}.`);
     }
   } else {
     apa.push(`Pendapatan ${rangeLabel}: <b>${fmtRp(rev[last])}</b>.`);
-    if (lo && lo[last]!=null && rev[last]) apa.push(`Laba Operasional: <b>${fmtRp(lo[last])}</b> (margin ${(lo[last]/rev[last]*100).toFixed(1)}%).`);
+    if (lo && lo[last]!=null && rev[last]) apa.push(`Laba Operasional: <b>${fmtRp(lo[last])}</b> (margin ${truncFixed((lo[last]/rev[last]*100),1)}%).`);
   }
   if (lb) {
     const negMonths = vIdx.filter(i=>lb[i]!=null && lb[i]<0);
@@ -5685,12 +5698,12 @@ function renderAnalysisCard(u){
     if (ratios.length>1) {
       const rMin = ratios.reduce((a,b)=>b.r<a.r?b:a), rMax = ratios.reduce((a,b)=>b.r>a.r?b:a);
       if (rMax.r - rMin.r >= 0.5) {
-        mengapa.push(`Rasio HPP bergerak antara <b>${rMin.r.toFixed(1)}%</b> (${mL(rMin.i)}) s/d <b>${rMax.r.toFixed(1)}%</b> (${mL(rMax.i)}) -- rentang ${(rMax.r-rMin.r).toFixed(1)} poin ini penggerak margin terbesar antar bulan terpilih.`);
+        mengapa.push(`Rasio HPP bergerak antara <b>${truncFixed(rMin.r,1)}%</b> (${mL(rMin.i)}) s/d <b>${truncFixed(rMax.r,1)}%</b> (${mL(rMax.i)}) -- rentang ${truncFixed((rMax.r-rMin.r),1)} poin ini penggerak margin terbesar antar bulan terpilih.`);
       } else {
-        mengapa.push(`Rasio HPP relatif stabil (${rMin.r.toFixed(1)}%–${rMax.r.toFixed(1)}%) di seluruh periode terpilih.`);
+        mengapa.push(`Rasio HPP relatif stabil (${truncFixed(rMin.r,1)}%–${truncFixed(rMax.r,1)}%) di seluruh periode terpilih.`);
       }
     } else if (ratios.length===1) {
-      mengapa.push(`Rasio HPP: ${ratios[0].r.toFixed(1)}% dari pendapatan.`);
+      mengapa.push(`Rasio HPP: ${truncFixed(ratios[0].r,1)}% dari pendapatan.`);
     }
   }
   if (opexRow && prev!==undefined) {
@@ -5707,13 +5720,13 @@ function renderAnalysisCard(u){
 
   // === KE DEPAN (berlabuh ke angka rentang terpilih) ===
   if (rev[last] && hpp && hpp[last]!=null) {
-    kedepan.push(`Setiap perbaikan 1 poin persen rasio HPP (skrg ${(hpp[last]/rev[last]*100).toFixed(1)}%) setara tambahan laba ± <b>${fmtRp(rev[last]*0.01)}</b>/bulan pada tingkat pendapatan ${mL(last)}.`);
+    kedepan.push(`Setiap perbaikan 1 poin persen rasio HPP (skrg ${truncFixed((hpp[last]/rev[last]*100),1)}%) setara tambahan laba ± <b>${fmtRp(rev[last]*0.01)}</b>/bulan pada tingkat pendapatan ${mL(last)}.`);
   }
   if (multi && opex) {
     const oRatios = vIdx.filter(i=>opex[i]!=null && rev[i]).map(i=>({i, r: opex[i]/rev[i]*100}));
     if (oRatios.length>1) {
       const eff = oRatios.reduce((a,b)=>b.r<a.r?b:a);
-      kedepan.push(`Bulan paling efisien di periode terpilih: <b>${mL(eff.i)}</b> (Biaya Operasional ${eff.r.toFixed(1)}% dari pendapatan) -- bisa dijadikan acuan target utk bulan lain.`);
+      kedepan.push(`Bulan paling efisien di periode terpilih: <b>${mL(eff.i)}</b> (Biaya Operasional ${truncFixed(eff.r,1)}% dari pendapatan) -- bisa dijadikan acuan target utk bulan lain.`);
     }
   }
   kedepan.push(`Rekomendasi spesifik (harga, mix produk, sewa, SDM) perlu konteks di luar laporan ini -- angka di atas menunjukkan DI MANA tekanannya, bukan tindakan persisnya.`);
@@ -5814,7 +5827,7 @@ function renderOpexTrend(mode){
   cats.forEach(cat => {
     rows += `<tr><td style="padding:9px 14px;font-size:12.5px;border-bottom:1px solid #2A2650;">${cat}</td>`;
     catTotals[cat].forEach((v,ci) => {
-      const pct = revByCol[ci] ? (v/revByCol[ci]*100).toFixed(1)+'%' : '-';
+      const pct = revByCol[ci] ? truncFixed((v/revByCol[ci]*100),1)+'%' : '-';
       rows += `<td class="mono" style="text-align:right;padding:9px 14px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;font-size:12px;">${pct}<span style="display:block;font-size:9.5px;color:#726C9C;">${fmtRp(v)}</span></td>`;
     });
     rows += '</tr>';
@@ -5822,7 +5835,7 @@ function renderOpexTrend(mode){
   rows += `<tr style="background:#1C1840;"><td style="padding:9px 14px;font-size:12.5px;font-weight:700;color:#FFC93C;border-bottom:1px solid #2A2650;">TOTAL OPEX</td>`;
   columns.forEach((c,ci) => {
     const tot = cats.reduce((s,cc)=>s+catTotals[cc][ci],0);
-    const pct = revByCol[ci] ? (tot/revByCol[ci]*100).toFixed(1)+'%' : '-';
+    const pct = revByCol[ci] ? truncFixed((tot/revByCol[ci]*100),1)+'%' : '-';
     rows += `<td class="mono" style="text-align:right;padding:9px 14px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;font-size:12px;font-weight:700;color:#FFC93C;">${pct}</td>`;
   });
   rows += '</tr>';
@@ -5909,15 +5922,15 @@ function renderOpexParetoImpl(vIdx){
     body += `<tr style="${hl?'background:#1C1840;':''}${expandable?'cursor:pointer;':''}" ${expandable?`onclick="toggleParetoGroup('${r.key.replace(/'/g,"\\'")}')"`:''}>
       <td style="padding:8px 14px;font-size:12px;color:${hl?'#FFC93C':'#C9C3E8'};border-bottom:1px solid #2A2650;">${arrow}${r.key}${expandable?` <span style="color:#726C9C;font-size:10.5px;">(${r.items.length} item)</span>`:''}</td>
       <td class="mono" style="text-align:right;padding:8px 14px;font-size:12px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;">${fmtRp(r.total)}</td>
-      <td class="mono" style="text-align:right;padding:8px 14px;font-size:12px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;">${r.pct.toFixed(1)}%</td>
-      <td class="mono" style="text-align:right;padding:8px 14px;font-size:12px;color:#726C9C;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;">${r.cumPct.toFixed(1)}%</td>
+      <td class="mono" style="text-align:right;padding:8px 14px;font-size:12px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;">${truncFixed(r.pct,1)}%</td>
+      <td class="mono" style="text-align:right;padding:8px 14px;font-size:12px;color:#726C9C;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;">${truncFixed(r.cumPct,1)}%</td>
     </tr>`;
     if (expandable && isOpen) {
       r.items.forEach(it => {
         const itPct = r.total ? (it.total/r.total*100) : 0;
         body += `<tr><td style="padding:6px 14px 6px 38px;font-size:11.5px;color:#9B93C4;border-bottom:1px solid #2A2650;">${it.name}</td>
           <td class="mono" style="text-align:right;padding:6px 14px;font-size:11.5px;color:#9B93C4;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;">${fmtRp(it.total)}</td>
-          <td class="mono" style="text-align:right;padding:6px 14px;font-size:11.5px;color:#726C9C;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;">${itPct.toFixed(1)}%<span style="color:#4A4568;"> dari grup</span></td>
+          <td class="mono" style="text-align:right;padding:6px 14px;font-size:11.5px;color:#726C9C;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;">${truncFixed(itPct,1)}%<span style="color:#4A4568;"> dari grup</span></td>
           <td style="border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;"></td></tr>`;
       });
     }
@@ -5966,7 +5979,7 @@ function renderOpexOutletImpl(vIdx){
       <td style="padding:8px 14px;font-size:12.5px;font-weight:600;border-bottom:1px solid #2A2650;">${arrow}${r.label}</td>
       <td class="mono" style="text-align:right;padding:8px 14px;font-size:12px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;">${fmtRp(r.revTot)}</td>
       <td class="mono" style="text-align:right;padding:8px 14px;font-size:12px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;">${fmtRp(r.opexTot)}</td>
-      <td class="mono" style="text-align:right;padding:8px 14px;font-size:12px;font-weight:700;color:${worse?'#FFC93C':'#4ADE80'};border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;">${r.ratio.toFixed(1)}%</td>
+      <td class="mono" style="text-align:right;padding:8px 14px;font-size:12px;font-weight:700;color:${worse?'#FFC93C':'#4ADE80'};border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;">${truncFixed(r.ratio,1)}%</td>
     </tr>`;
     if (isOpen) {
       const items = flattenOpexLeaves(r.opexRow)
@@ -5981,14 +5994,14 @@ function renderOpexOutletImpl(vIdx){
           body += `<tr><td style="padding:6px 14px 6px 38px;font-size:11.5px;color:#9B93C4;border-bottom:1px solid #2A2650;">${it.name}</td>
             <td style="border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;"></td>
             <td class="mono" style="text-align:right;padding:6px 14px;font-size:11.5px;color:#9B93C4;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;">${fmtRp(it.total)}</td>
-            <td class="mono" style="text-align:right;padding:6px 14px;font-size:11px;color:#726C9C;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;">${pctOfOpex.toFixed(1)}% dari opex outlet</td>
+            <td class="mono" style="text-align:right;padding:6px 14px;font-size:11px;color:#726C9C;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;">${truncFixed(pctOfOpex,1)}% dari opex outlet</td>
           </tr>`;
         });
       }
     }
   });
   body += `</tbody></table></div>
-  <div style="font-size:11px;color:#726C9C;margin-top:10px;">Rata-rata semua outlet: <b>${avgRatio.toFixed(1)}%</b>. Kuning = di atas rata-rata (opex relatif lebih besar terhadap pendapatannya), hijau = di bawah rata-rata. Klik baris outlet untuk lihat rincian item biayanya.</div>`;
+  <div style="font-size:11px;color:#726C9C;margin-top:10px;">Rata-rata semua outlet: <b>${truncFixed(avgRatio,1)}%</b>. Kuning = di atas rata-rata (opex relatif lebih besar terhadap pendapatannya), hijau = di bawah rata-rata. Klik baris outlet untuk lihat rincian item biayanya.</div>`;
   return opexModuleWrap('Efisiensi Opex per Outlet', 'Outlet diurutkan dari rasio Biaya Operasional/Pendapatan tertinggi -- makin tinggi, makin besar porsi pendapatan outlet itu terserap biaya operasional. Berdasarkan total periode yang difilter.', body);
 }
 
@@ -6086,13 +6099,13 @@ function renderOpexLeverage(mode){
     const oG = idx>0 ? fmtDeltaPct(c.o, columns[idx-1].o) : null;
     rowsHtml += `<tr>
       <td style="padding:8px 14px;font-size:12px;border-bottom:1px solid #2A2650;">${c.label}</td>
-      <td class="mono" style="text-align:right;padding:8px 14px;font-size:12px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;">${fmtRp(c.r)}${rG!==null?`<span style="display:block;font-size:9.5px;color:${rG>=0?'#4ADE80':'#FFC93C'};">${rG>=0?'▲':'▼'}${Math.abs(rG).toFixed(1)}%</span>`:''}</td>
-      <td class="mono" style="text-align:right;padding:8px 14px;font-size:12px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;">${fmtRp(c.o)}${oG!==null?`<span style="display:block;font-size:9.5px;color:${oG>=0?'#FFC93C':'#4ADE80'};">${oG>=0?'▲':'▼'}${Math.abs(oG).toFixed(1)}%</span>`:''}</td>
+      <td class="mono" style="text-align:right;padding:8px 14px;font-size:12px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;">${fmtRp(c.r)}${rG!==null?`<span style="display:block;font-size:9.5px;color:${rG>=0?'#4ADE80':'#FFC93C'};">${rG>=0?'▲':'▼'}${truncFixed(Math.abs(rG),1)}%</span>`:''}</td>
+      <td class="mono" style="text-align:right;padding:8px 14px;font-size:12px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;">${fmtRp(c.o)}${oG!==null?`<span style="display:block;font-size:9.5px;color:${oG>=0?'#FFC93C':'#4ADE80'};">${oG>=0?'▲':'▼'}${truncFixed(Math.abs(oG),1)}%</span>`:''}</td>
     </tr>`;
   });
   const summary = leverage===null ? '' : `<div style="background:#1C1840;border-radius:10px;padding:14px 18px;margin-bottom:16px;font-size:13px;color:#F5F3FF;">
-    Dari ${first.label} ke ${last.label}: Pendapatan tumbuh <b style="color:#4ADE80;">${revGrowth.toFixed(1)}%</b>, Opex tumbuh <b style="color:#FFC93C;">${opexGrowth.toFixed(1)}%</b>.
-    ${leverage>0 ? `<br>Selisih <b style="color:#4ADE80;">+${leverage.toFixed(1)} poin</b> menguntungkan -- pendapatan tumbuh lebih cepat drpd biaya (tanda skala ekonomi mulai bekerja).` : `<br>Selisih <b style="color:#FB7185;">${leverage.toFixed(1)} poin</b> -- biaya tumbuh LEBIH CEPAT drpd pendapatan, perlu perhatian.`}
+    Dari ${first.label} ke ${last.label}: Pendapatan tumbuh <b style="color:#4ADE80;">${truncFixed(revGrowth,1)}%</b>, Opex tumbuh <b style="color:#FFC93C;">${truncFixed(opexGrowth,1)}%</b>.
+    ${leverage>0 ? `<br>Selisih <b style="color:#4ADE80;">+${truncFixed(leverage,1)} poin</b> menguntungkan -- pendapatan tumbuh lebih cepat drpd biaya (tanda skala ekonomi mulai bekerja).` : `<br>Selisih <b style="color:#FB7185;">${truncFixed(leverage,1)} poin</b> -- biaya tumbuh LEBIH CEPAT drpd pendapatan, perlu perhatian.`}
   </div>`;
   const table = `<div class="tbl-wrap"><table><thead><tr>
     <th style="text-align:left;padding:9px 14px;color:#726C9C;font-size:11px;text-transform:uppercase;border-bottom:1px solid #2A2650;">Periode</th>
@@ -6214,8 +6227,8 @@ function renderOpexOverviewCards(){
   }
 
   const html = `<div class="fa-cards6">
-    <div class="fa-card" title="${faEsc(fmtRp(totalOpex))}"><div class="fa-clabel">Total OPEX</div><div class="fa-cval">${faCompactRp(totalOpex)}</div><div class="fa-cdelta" style="color:#726C9C;">${ratio!=null?ratio.toFixed(1)+'% Revenue':'-'}</div></div>
-    <div class="fa-card"><div class="fa-clabel">OPEX Ratio</div><div class="fa-cval">${ratio!=null?ratio.toFixed(1)+'%':'-'}</div><div class="fa-cdelta" style="color:#726C9C;">thd Revenue periode terpilih</div></div>
+    <div class="fa-card" title="${faEsc(fmtRp(totalOpex))}"><div class="fa-clabel">Total OPEX</div><div class="fa-cval">${faCompactRp(totalOpex)}</div><div class="fa-cdelta" style="color:#726C9C;">${ratio!=null?truncFixed(ratio,1)+'% Revenue':'-'}</div></div>
+    <div class="fa-card"><div class="fa-clabel">OPEX Ratio</div><div class="fa-cval">${ratio!=null?truncFixed(ratio,1)+'%':'-'}</div><div class="fa-cdelta" style="color:#726C9C;">thd Revenue periode terpilih</div></div>
     <div class="fa-card" title="${changeAbs==null?'':faEsc(fmtRp(changeAbs))}"><div class="fa-clabel">Change vs Periode Lalu</div><div class="fa-cval" style="color:${changeAbs==null?'#F5F3FF':(changeAbs>0?'#FB7185':'#4ADE80')}">${changeAbs==null?'-':(changeAbs>=0?'+':'')+faCompactRp(changeAbs)}</div><div class="fa-cdelta" style="color:#726C9C;">${changeAbs==null?'-':(changeAbs>0?'Expense increase':'Expense decrease')}</div></div>
     <div class="fa-card"><div class="fa-clabel">Critical Items</div><div class="fa-cval" style="color:${anomaly.count>0?'#FB7185':'#4ADE80'}">${anomaly.count}</div><div class="fa-cdelta" style="color:#726C9C;">Lonjakan ≥50% &amp; ≥Rp2jt</div></div>
     <div class="fa-card" title="${largest?faEsc(fmtRp(Math.abs(largest.deltaAbs))):''}"><div class="fa-clabel">Largest Impact</div><div class="fa-cval">${largest?faCompactRp(Math.abs(largest.deltaAbs)):'-'}</div><div class="fa-cdelta" style="color:#FB7185;">${largest?faEsc(largest.name):'-'}</div></div>
@@ -6263,8 +6276,8 @@ function renderOpexOverviewTrendReadout(cardsCtx){
   const insights = [];
   if (cardsCtx.ratio!=null){
     insights.push(ratioAvg3!=null
-      ? `<b>OPEX ratio ${cardsCtx.ratio<=ratioAvg3?'terjaga':'naik'}.</b> ${cardsCtx.ratio.toFixed(1)}% dari Revenue, dibanding rata-rata 3 bulan terakhir ${ratioAvg3.toFixed(1)}%.`
-      : `<b>OPEX ratio saat ini ${cardsCtx.ratio.toFixed(1)}%</b> dari Revenue.`);
+      ? `<b>OPEX ratio ${cardsCtx.ratio<=ratioAvg3?'terjaga':'naik'}.</b> ${truncFixed(cardsCtx.ratio,1)}% dari Revenue, dibanding rata-rata 3 bulan terakhir ${truncFixed(ratioAvg3,1)}%.`
+      : `<b>OPEX ratio saat ini ${truncFixed(cardsCtx.ratio,1)}%</b> dari Revenue.`);
   }
   if (cardsCtx.anomaly.count){
     const names = cardsCtx.anomaly.items.slice(0,2).map(i=>i.name).join(' dan ');
@@ -6387,8 +6400,8 @@ function renderOpexOverviewByUnit(cardsCtx){
   const rowsHtml = rows.map(r=>`<tr>
       <td style="padding:8px 10px;font-size:11.5px;">${faEsc(r.label)}</td>
       <td class="mono" style="padding:8px 10px;text-align:right;font-size:11px;">${fmtRp(r.opexTot)}</td>
-      <td class="mono" style="padding:8px 10px;text-align:right;font-size:11px;">${r.ratio.toFixed(1)}%</td>
-      <td class="mono" style="padding:8px 10px;text-align:right;font-size:11px;color:${r.vsAvg3==null?'#726C9C':(r.vsAvg3>0?'#FB7185':'#4ADE80')};">${r.vsAvg3==null?'-':(r.vsAvg3>=0?'+':'')+r.vsAvg3.toFixed(1)+'pp'}</td>
+      <td class="mono" style="padding:8px 10px;text-align:right;font-size:11px;">${truncFixed(r.ratio,1)}%</td>
+      <td class="mono" style="padding:8px 10px;text-align:right;font-size:11px;color:${r.vsAvg3==null?'#726C9C':(r.vsAvg3>0?'#FB7185':'#4ADE80')};">${r.vsAvg3==null?'-':(r.vsAvg3>=0?'+':'')+truncFixed(r.vsAvg3,1)+'pp'}</td>
       <td style="padding:8px 10px;font-size:11px;color:#9B93C4;">${r.driver?faEsc(r.driver.name):'-'}</td>
       <td class="mono" style="padding:8px 10px;text-align:right;font-size:11px;color:${r.driver?(r.driver.delta>=0?'#FB7185':'#4ADE80'):'#726C9C'};">${r.driver?(r.driver.delta>=0?'−':'+')+faCompactRp(Math.abs(r.driver.delta)):'-'}</td>
       <td style="padding:8px 10px;text-align:center;"><span style="background:${statusColor(r.status)}22;color:${statusColor(r.status)};border:1px solid ${statusColor(r.status)};border-radius:8px;padding:2px 7px;font-size:9px;font-weight:700;">${r.status}</span></td>
@@ -6472,7 +6485,7 @@ function renderHppRingkasan(){
   const cardHtml = (label, val, pct) => `<div style="flex:1;min-width:200px;background:#171433;border:1px solid #2A2650;border-radius:14px;padding:18px 20px;">
     <div style="font-size:11px;color:#726C9C;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">${label}</div>
     <div class="mono" style="font-size:20px;font-weight:700;color:#F4A6D0;margin-top:6px;">${fmtRp(val)}</div>
-    <div style="font-size:11.5px;color:#9B93C4;margin-top:3px;">${pct!=null?pct.toFixed(1)+'% thd Omset':'–'}</div>
+    <div style="font-size:11.5px;color:#9B93C4;margin-top:3px;">${pct!=null?truncFixed(pct,1)+'% thd Omset':'–'}</div>
   </div>`;
   const cards = [
     cardHtml(`Bulan Terakhir · ${periodLabel(PERIODS[last],false)}`, hpp[last], pctLast),
@@ -6485,8 +6498,8 @@ function renderHppRingkasan(){
   const poinPrev = (pctLast!=null && pctPrev!=null) ? pctLast-pctPrev : null;
   const poinAvg = (pctLast!=null && avgPct!=null) ? pctLast-avgPct : null;
   const deltaHtml = `<div style="background:#1C1840;border-radius:10px;padding:14px 18px;margin-top:16px;font-size:13px;color:#F5F3FF;line-height:1.9;">
-    ${deltaPrev!==null ? `Rp vs bulan sebelumnya: <b style="color:${deltaPrev>=0?'#FB7185':'#4ADE80'};">${deltaPrev>=0?'▲':'▼'}${Math.abs(deltaPrev).toFixed(1)}%</b>${poinPrev!=null?` (rasio thd Omset ${poinPrev>=0?'naik':'turun'} ${Math.abs(poinPrev).toFixed(1)} poin)`:''}<br>` : ''}
-    ${deltaAvg!==null ? `Rp vs rata-rata ${histIdx.length} bulan: <b style="color:${deltaAvg>=0?'#FB7185':'#4ADE80'};">${deltaAvg>=0?'▲':'▼'}${Math.abs(deltaAvg).toFixed(1)}%</b>${poinAvg!=null?` (rasio thd Omset ${poinAvg>=0?'naik':'turun'} ${Math.abs(poinAvg).toFixed(1)} poin)`:''}` : ''}
+    ${deltaPrev!==null ? `Rp vs bulan sebelumnya: <b style="color:${deltaPrev>=0?'#FB7185':'#4ADE80'};">${deltaPrev>=0?'▲':'▼'}${truncFixed(Math.abs(deltaPrev),1)}%</b>${poinPrev!=null?` (rasio thd Omset ${poinPrev>=0?'naik':'turun'} ${truncFixed(Math.abs(poinPrev),1)} poin)`:''}<br>` : ''}
+    ${deltaAvg!==null ? `Rp vs rata-rata ${histIdx.length} bulan: <b style="color:${deltaAvg>=0?'#FB7185':'#4ADE80'};">${deltaAvg>=0?'▲':'▼'}${truncFixed(Math.abs(deltaAvg),1)}%</b>${poinAvg!=null?` (rasio thd Omset ${poinAvg>=0?'naik':'turun'} ${truncFixed(Math.abs(poinAvg),1)} poin)`:''}` : ''}
   </div>`;
 
   return hppModuleWrap('Ringkasan HPP Bahan Baku',
@@ -6519,7 +6532,7 @@ function renderHppTren(mode){
   columns.forEach((c,ci)=>{
     rowRp += `<td class="mono" style="text-align:right;padding:9px 14px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;font-size:12px;">${fmtRp(hppByCol[ci])}</td>`;
     const pct = revByCol[ci] ? (hppByCol[ci]/revByCol[ci]*100) : null;
-    rowPct += `<td class="mono" style="text-align:right;padding:9px 14px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;font-size:12px;font-weight:700;color:#F4A6D0;">${pct!=null?pct.toFixed(1)+'%':'-'}</td>`;
+    rowPct += `<td class="mono" style="text-align:right;padding:9px 14px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;font-size:12px;font-weight:700;color:#F4A6D0;">${pct!=null?truncFixed(pct,1)+'%':'-'}</td>`;
   });
   rowRp += '</tr>'; rowPct += '</tr>';
   const table = `<div class="tbl-wrap"><table><thead><tr>${head}</tr></thead><tbody>${rowRp}${rowPct}</tbody></table></div>`;
@@ -6569,11 +6582,11 @@ function renderHppAnomalyImpl(prevIdx, lastIdx, mPrev, mLast){
     <tr><td style="padding:8px 14px;font-size:12px;border-bottom:1px solid #2A2650;">${mPrev}</td>
       <td class="mono" style="text-align:right;padding:8px 14px;font-size:12px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;">${fmtRp(r.h0)}</td>
       <td class="mono" style="text-align:right;padding:8px 14px;font-size:12px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;">${fmtRp(r.r0)}</td>
-      <td class="mono" style="text-align:right;padding:8px 14px;font-size:12px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;">${r.pct0.toFixed(1)}%</td></tr>
+      <td class="mono" style="text-align:right;padding:8px 14px;font-size:12px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;">${truncFixed(r.pct0,1)}%</td></tr>
     <tr style="background:#241F1F;"><td style="padding:8px 14px;font-size:12px;color:#FB7185;border-bottom:1px solid #2A2650;">⚠ ${mLast}</td>
       <td class="mono" style="text-align:right;padding:8px 14px;font-size:12px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;">${fmtRp(r.h1)}</td>
       <td class="mono" style="text-align:right;padding:8px 14px;font-size:12px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;">${fmtRp(r.r1)}</td>
-      <td class="mono" style="text-align:right;padding:8px 14px;font-size:12px;font-weight:700;color:#FB7185;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;">${r.pct1.toFixed(1)}% (${naik?'▲':'▼'}${Math.abs(r.poin).toFixed(1)} poin)</td></tr>
+      <td class="mono" style="text-align:right;padding:8px 14px;font-size:12px;font-weight:700;color:#FB7185;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;">${truncFixed(r.pct1,1)}% (${naik?'▲':'▼'}${truncFixed(Math.abs(r.poin),1)} poin)</td></tr>
   </tbody></table></div>`;
   return hppModuleWrap('Deteksi Lonjakan HPP Bahan Baku', note, body);
 }
@@ -6591,8 +6604,8 @@ function renderHppAnomalyNotice(currentKey){
   return `<div onclick="navigateTo('hppAnomaly')" style="cursor:pointer;background:#2A1B1B;border:1px solid #FB7185;border-radius:12px;padding:14px 18px;margin-bottom:16px;display:flex;align-items:center;gap:12px;">
     <span style="font-size:20px;">🔴</span>
     <div style="flex:1;">
-      <div style="font-size:13px;font-weight:700;color:#FB7185;">Rasio HPP Bahan Baku thd Omset ${naik?'naik':'turun'} ${Math.abs(r.poin).toFixed(1)} poin (${r.mPrev}→${r.mLast})</div>
-      <div style="font-size:11.5px;color:#C9A0A6;margin-top:2px;">${r.pct0.toFixed(1)}% → ${r.pct1.toFixed(1)}% -- klik utk detail.</div>
+      <div style="font-size:13px;font-weight:700;color:#FB7185;">Rasio HPP Bahan Baku thd Omset ${naik?'naik':'turun'} ${truncFixed(Math.abs(r.poin),1)} poin (${r.mPrev}→${r.mLast})</div>
+      <div style="font-size:11.5px;color:#C9A0A6;margin-top:2px;">${truncFixed(r.pct0,1)}% → ${truncFixed(r.pct1,1)}% -- klik utk detail.</div>
     </div>
     <span style="color:#FB7185;font-size:18px;">→</span>
   </div>`;
@@ -6633,7 +6646,7 @@ function renderHomePage(){
   ];
   const kpiHtml = kpis.map(k => `<div style="flex:1;min-width:180px;background:#171433;border:1px solid #2A2650;border-radius:14px;padding:18px 20px;">
     <div style="font-size:11px;color:#726C9C;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">${k.label} · ${selectedYear}</div>
-    <div class="mono" style="font-size:22px;font-weight:700;color:${k.color};margin-top:6px;">${fmtRp(k.val)}${k.pct!==null?` <span style="font-size:13px;font-weight:600;color:#726C9C;">(${k.pct.toFixed(1)}%)</span>`:''}</div>
+    <div class="mono" style="font-size:22px;font-weight:700;color:${k.color};margin-top:6px;">${fmtRp(k.val)}${k.pct!==null?` <span style="font-size:13px;font-weight:600;color:#726C9C;">(${truncFixed(k.pct,1)}%)</span>`:''}</div>
   </div>`).join('');
 
   const GROUP_META = {
@@ -7461,7 +7474,7 @@ function renderOutletTable(){
       const pend = UNIT_DATA[k].waterfall.find(r=>r.name==='Pendapatan');
       const base = pend ? sumAt(pend.values) : null;
       const txt = v==null ? '-' : v.toLocaleString('id-ID');
-      const pctTxt = (v!=null && base) ? `<span style="font-size:9.5px;color:#726C9C;display:block;">${(v/base*100).toFixed(1)}%</span>` : '';
+      const pctTxt = (v!=null && base) ? `<span style="font-size:9.5px;color:#726C9C;display:block;">${truncFixed((v/base*100),1)}%</span>` : '';
       const negStyle = (v!=null && v<0) ? 'color:#9B93C4;' : '';
       tbody += `<td style="padding:12px 16px;text-align:right;border-left:1px solid #2A2650;border-bottom:1px solid #2A2650;white-space:nowrap;font-family:'Plus Jakarta Sans',sans-serif;font-variant-numeric:tabular-nums;font-size:13px;${negStyle}">${txt}${pctTxt}</td>`;
     });
