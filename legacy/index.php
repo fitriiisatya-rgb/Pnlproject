@@ -727,9 +727,10 @@ const UNIT_DATA = {
           "Pph 21": [null,null,null,null,null,null],
           "Pajak Daerah": [null,null,null,null,null,null]
         } },
+      { name:'Biaya Bunga Bank', accountLabel:'Biaya Bunga Bank', values:[null,null,null,null,null,null] },
       { name:'Cost of Management', accountLabel:'Cost Of Management', values:[null,null,null,null,null,null] },
       { name:'Laba Bersih', accountLabel:'', computed:true, values:[null,null,null,null,null,null],
-        note:'DIHITUNG: Laba Operasional - Biaya Penyusutan - Biaya Pajak - Cost of Management.' },
+        note:'DIHITUNG: Laba Operasional - Biaya Penyusutan - Biaya Pajak - Biaya Bunga Bank - Cost of Management.' },
     ]
   },
   ho: {
@@ -871,6 +872,7 @@ const UNIT_DATA = {
       { name:'Laba Operasional', highlight:true, accountLabel:'', computed:true, values:[null,null,null,null,null,null],
         note:'DIHITUNG: Laba Kotor - Biaya Operasional.' },
       { name:'Biaya Depresiasi', accountLabel:'Biaya Depresiasi', values:[null,null,null,null,null,null] },
+      { name:'Biaya Pajak', accountLabel:'Biaya Pajak', values:[null,null,null,null,null,null] },
       { name:'Bunga Bank', accountLabel:'Bunga Bank', computed:true, forceFormula:true, values:[null,null,null,null,null,null],
         note:'DIHITUNG: Pendapatan Bunga Bank - Biaya Bunga Bank (net, sesuai rumus: -bunga bank +pendapatan bunga bank).',
         children: {
@@ -878,7 +880,7 @@ const UNIT_DATA = {
           'Biaya Bunga Bank': [null,null,null,null,null,null],
         } },
       { name:'Laba Bersih', accountLabel:'', computed:true, values:[null,null,null,null,null,null],
-        note:'DIHITUNG: Laba Operasional - Biaya Depresiasi + Bunga Bank (net, sudah termasuk tanda didalamnya).' },
+        note:'DIHITUNG: Laba Operasional - Biaya Depresiasi - Biaya Pajak + Bunga Bank (net, sudah termasuk tanda didalamnya).' },
     ]
   },
   ownership: {
@@ -2592,6 +2594,7 @@ function rebuildManufakturComputed(){
 
   const biayaPenyusutan = get('Biaya Penyusutan');
   const biayaPajak = get('Biaya Pajak');
+  const biayaBungaBank = get('Biaya Bunga Bank');
   const costMgmt = get('Cost of Management');
   const labaOperasional = labaOperasionalRow ? labaOperasionalRow.values : null;
   const labaBersihRow = u.waterfall.find(r => r.name==='Laba Bersih');
@@ -2600,8 +2603,9 @@ function rebuildManufakturComputed(){
       if (lo===null) return null;
       const bp = (biayaPenyusutan && biayaPenyusutan[i]!=null) ? biayaPenyusutan[i] : 0;
       const pj = (biayaPajak && biayaPajak[i]!=null) ? biayaPajak[i] : 0;
+      const bb = (biayaBungaBank && biayaBungaBank[i]!=null) ? biayaBungaBank[i] : 0;
       const cm = (costMgmt && costMgmt[i]!=null) ? costMgmt[i] : 0;
-      return lo - bp - pj - cm;
+      return lo - bp - pj - bb - cm;
     });
   }
 }
@@ -2626,6 +2630,7 @@ function rebuildHOComputed(){
   if (labaOperasionalRow && labaKotor && biayaOperasional) labaOperasionalRow.values = subArr(labaKotor, biayaOperasional);
 
   const biayaDepresiasi = get('Biaya Depresiasi');
+  const biayaPajak = get('Biaya Pajak');
   const bungaBank = get('Bunga Bank');
   const labaOperasional = labaOperasionalRow ? labaOperasionalRow.values : null;
   const labaBersihRow = u.waterfall.find(r => r.name==='Laba Bersih');
@@ -2633,8 +2638,9 @@ function rebuildHOComputed(){
     labaBersihRow.values = labaOperasional.map((lo,i) => {
       if (lo===null) return null;
       const d = (biayaDepresiasi && biayaDepresiasi[i]!=null) ? biayaDepresiasi[i] : 0;
+      const pj = (biayaPajak && biayaPajak[i]!=null) ? biayaPajak[i] : 0;
       const bb = (bungaBank && bungaBank[i]!=null) ? bungaBank[i] : 0;
-      return lo - d + bb; // bungaBank sudah net (Pendapatan Bunga - Biaya Bunga)
+      return lo - d - pj + bb; // bungaBank sudah net (Pendapatan Bunga - Biaya Bunga)
     });
   }
 }
