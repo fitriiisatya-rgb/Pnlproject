@@ -23,7 +23,14 @@ const faLine = getLineVals; // alias -- fungsi ini sudah ada di script utama, ex
 const FA_CONFIG = {
   warning_variance_percent: 15,
   critical_variance_percent: 30,
-  minimum_materiality_amount: 3000000,       // Rp3jt -- di bawah ini, variance persen besar pun diabaikan (tidak material)
+  // Rp10jt -- di bawah ini, variance persen besar pun diabaikan (tidak material).
+  // Dituning dari Rp3jt -> Rp10jt berdasarkan validasi data real (revenue Group
+  // ~Rp10-11 Miliar/bulan): pada skala itu Rp3jt (~0,03% revenue) terlalu
+  // rendah, menghasilkan alert fatigue (item Rp3-9jt ikut tertandai "Critical"
+  // hanya krn %-nya besar di atas basis kecil). Rp10jt (~0,1% revenue) tetap
+  // menangkap SEMUA item besar yg sebelumnya lolos filter ini, sambil membuang
+  // noise di kisaran Rp3-9jt.
+  minimum_materiality_amount: 10000000,
   materiality_percent_of_revenue: 1.0,       // 1% dari total Pendapatan Group
   gross_margin_drop_threshold: 2.0,          // percentage points
   opex_ratio_threshold: 2.0,                 // percentage points
@@ -50,7 +57,11 @@ const FA_CONFIG = {
 const FA_STATUS_LEGEND = {
   financialHealth: ['🟢 Healthy', '🟡 Need Attention', '🔴 Critical'],
   expenseAndAnomaly: ['🟢 Normal', '🟡 Watch', '🔴 Critical'],
-  outletClassification: ['STAR', 'GROWTH', 'STABLE', 'WATCHLIST', 'CRITICAL'],
+  // 'NO DATA' bukan tingkat performa -- dipakai HANYA saat outlet belum
+  // punya data sama sekali periode ini (dikeluarkan dari skor, poin 7 QA
+  // review, ditemukan lewat validasi data real: bulan berjalan bisa punya
+  // total Group tapi rincian per-outlet blm terinput).
+  outletClassification: ['STAR', 'GROWTH', 'STABLE', 'WATCHLIST', 'CRITICAL', 'NO DATA'],
 };
 
 /* ============================== 2. CALC ENGINE ============================== */
@@ -218,20 +229,32 @@ function faProfitDrivers(u, unitKey, pm, baseIndices){
   const drivers = [];
   const push = (name, curValRaw, baseVal, isCost)=>{
     const curVal = faScaleForOpenMonth(curValRaw, pm);
-    if (curVal==null || baseVal==null) return;
+    if (curVal==null || baseVal==null) return false;
     const delta = curVal - baseVal;
     const impact = isCost ? -delta : delta;
-    if (Math.abs(impact) < 1) return;
+    if (Math.abs(impact) < 1) return false;
     drivers.push({ name, impact });
+    return true;
   };
 
   if (unitKey === 'konsolidasi') {
+    let anyOutletRevenuePushed = false;
     OUTLET_KEYS.forEach(k=>{
       const ou = UNIT_DATA[k];
       const orev = faLine(ou,'Pendapatan');
       if (!orev) return;
-      push(`Revenue ${ou.label}`, orev[curIdx], faAvg(orev, baseIndices), false);
+      if (push(`Revenue ${ou.label}`, orev[curIdx], faAvg(orev, baseIndices), false)) anyOutletRevenuePushed = true;
     });
+    // BUG (ditemukan via validasi data real): kalau SEMUA 14 outlet null utk
+    // periode ini (mis. rincian per-outlet blm terinput walau total Group
+    // sudah ada), dulu TIDAK ADA driver Revenue sama sekali yg didorong --
+    // seluruh efek revenue (bisa ratusan juta) diam2 masuk ke residual
+    // "Item Lain" tanpa label, jadi kelihatan seolah "tidak diketahui
+    // penyebabnya" padahal sebenarnya cukup diketahui dari angka Group
+    // sendiri. Fallback: pakai baris Pendapatan Group langsung.
+    if (!anyOutletRevenuePushed) {
+      push('Revenue (Group -- rincian per outlet belum tersedia periode ini)', rev ? rev[curIdx] : null, faAvg(rev, baseIndices), false);
+    }
   } else {
     push('Revenue', rev ? rev[curIdx] : null, faAvg(rev, baseIndices), false);
   }
@@ -333,7 +356,13 @@ function faEvaluateAnomaly(varianceRp, variancePct, groupRevenue, isNew){
   if (varianceRp==null) return null;
   const materialAmt = Math.abs(varianceRp) >= FA_CONFIG.minimum_materiality_amount;
   const materialPct = groupRevenue ? (Math.abs(varianceRp)/Math.abs(groupRevenue)*100) >= FA_CONFIG.materiality_percent_of_revenue : false;
-  if (!isNew && !materialAmt && !materialPct) return null;
+  // Poin real-data validation: akun baru SEBELUMNYA lolos gate materialitas
+  // sepenuhnya (selalu ditandai walau cuma Rp60rb) -- itu persis noise yg
+  // instruksi minta dihindari ("new but legitimate accounts" jangan
+  // di-warning kalau nominalnya kecil). Akun baru sekarang tunduk pd gate
+  // materialitas YANG SAMA spt item lain -- baru dilaporkan kalau jumlahnya
+  // sendiri cukup besar utk relevan bagi management.
+  if (!materialAmt && !materialPct) return null;
   if (isNew) return { severity:'watch', label:'🟡 Akun/Item Baru' };
   const pct = variancePct!=null ? Math.abs(variancePct) : 0;
   if (pct >= FA_CONFIG.critical_variance_percent) return { severity:'critical', label:'🔴 Critical' };
@@ -372,8 +401,13 @@ function faAnomalyScan(pm){
         const prevPrev = l.vals[prevIdx-1];
         if (prevPrev!=null && prevPrev!==0 && Math.abs((prev-prevPrev)/Math.abs(prevPrev)*100) >= FA_CONFIG.warning_variance_percent) isRepeated = true;
       }
-      const severity = (isRepeated && ev.severity==='watch') ? 'critical' : ev.severity;
-      const status = isRepeated ? `${ev.label} (berulang)` : ev.label;
+      const escalated = isRepeated && ev.severity==='watch';
+      const severity = escalated ? 'critical' : ev.severity;
+      // BUG (ditemukan via validasi data real): label status sebelumnya tetap
+      // memakai ev.label ASLI (mis. "🟡 Watch") walau severity sudah dinaikkan
+      // ke 'critical' -- kolom Severity & Status jadi kontradiktif di tabel yg
+      // sama. Label sekarang ikut mencerminkan hasil eskalasi.
+      const status = escalated ? '🔴 Critical (berulang)' : (isRepeated ? `${ev.label} (berulang)` : ev.label);
       rows.push({ account:l.name, outlet:outletLabel, current:cur, previous:prev, avg3, varianceRp, variancePct,
         pctRevenue: groupRevenue ? varianceRp/groupRevenue*100 : null, profitImpact:-varianceRp,
         severity, status, isNew, isRepeated });
@@ -522,10 +556,18 @@ function faFinancialHealthScore(u, unitKey, pm, ctx){
   const watchCount = anomalies.filter(a=>a.severity==='watch').length;
   const anomalyScore = Math.max(0, 100 - critCount*15 - watchCount*5);
 
-  let outletProfitScore;
+  let outletProfitScore, outletDataNote = '';
   if (unitKey==='konsolidasi' && ctx.outletPerf){
-    const bad = ctx.outletPerf.rows.filter(o=>o.classification==='CRITICAL'||o.classification==='WATCHLIST').length;
-    outletProfitScore = ctx.outletPerf.rows.length ? Math.round(100 - (bad/ctx.outletPerf.rows.length*100)) : 60;
+    // BUG (ditemukan via validasi data real): outlet 'NO DATA' sebelumnya
+    // ikut dihitung sbg "bukan bad" di penyebut, membuat skor 100/100
+    // ("0 outlet perlu perhatian") padahal SEMUA outlet kosong datanya utk
+    // periode ini -- itu bukan sinyal bagus, itu sinyal "tidak diketahui".
+    // Outlet tanpa data sekarang dikeluarkan dari pembilang MAUPUN penyebut.
+    const known = ctx.outletPerf.rows.filter(o=>o.classification!=='NO DATA');
+    const noDataCount = ctx.outletPerf.rows.length - known.length;
+    const bad = known.filter(o=>o.classification==='CRITICAL'||o.classification==='WATCHLIST').length;
+    outletProfitScore = known.length ? Math.round(100 - (bad/known.length*100)) : 60;
+    if (noDataCount>0) outletDataNote = `, ${noDataCount} outlet blm ada data periode ini (tidak dihitung)`;
   } else {
     outletProfitScore = faOutletProfitScoreFor(ctx.ownClassification);
   }
@@ -542,7 +584,7 @@ function faFinancialHealthScore(u, unitKey, pm, ctx){
     netMargin: { score: faScoreFromDelta(kpiCur.netMarginPct!=null&&nmB!=null?kpiCur.netMarginPct-nmB:null, 1, 3), weight: FA_CONFIG.health_score_weights.netMargin, detail: kpiCur.netMarginPct!=null?`${kpiCur.netMarginPct.toFixed(1)}%`:'-' },
     historicalTrend: { score: faTrendScore(npTrend.label), weight: FA_CONFIG.health_score_weights.historicalTrend, detail: npTrend.label },
     anomalies: { score: anomalyScore, weight: FA_CONFIG.health_score_weights.anomalies, detail: `${critCount} critical, ${watchCount} watch` },
-    outletProfitability: { score: outletProfitScore, weight: FA_CONFIG.health_score_weights.outletProfitability, detail: unitKey==='konsolidasi' ? `${ctx.outletPerf?ctx.outletPerf.rows.filter(o=>o.classification==='CRITICAL'||o.classification==='WATCHLIST').length:0} outlet perlu perhatian` : (ctx.ownClassification||'-') },
+    outletProfitability: { score: outletProfitScore, weight: FA_CONFIG.health_score_weights.outletProfitability, detail: unitKey==='konsolidasi' ? `${ctx.outletPerf?ctx.outletPerf.rows.filter(o=>o.classification==='CRITICAL'||o.classification==='WATCHLIST').length:0} outlet perlu perhatian${outletDataNote}` : (ctx.ownClassification||'-') },
     dataCompleteness: { score: dataScore, weight: FA_CONFIG.health_score_weights.dataCompleteness, detail: completeness && completeness.overallPct!=null?`${completeness.overallPct.toFixed(0)}% lengkap`:'-' },
   };
   let total=0, wsum=0;
@@ -615,7 +657,15 @@ function faOutletPerformance(pm){
   const medianMargin = margins.length ? margins[Math.floor(margins.length/2)] : null;
   rows.forEach(r=>{
     let cls;
-    if (r.netProfit!=null && r.netProfit<0) cls='CRITICAL';
+    // BUG (ditemukan via validasi data real): outlet TANPA data sama sekali
+    // periode ini sebelumnya jatuh ke default 'STABLE' -- scr visual & di
+    // Health Score itu terbaca sbg "baik-baik saja", padahal kenyataannya
+    // "tidak diketahui". Kasus nyata: saat data per-outlet bulan berjalan
+    // belum diinput (baru Group-level yg terisi), SEMUA 14 outlet bisa
+    // silently ditandai STABLE meski datanya kosong total. Sekarang eksplisit
+        // "NO DATA" -- dikeluarkan dari skor & tidak dianggap sinyal positif.
+    if (r.revenue==null && r.netProfit==null) cls='NO DATA';
+    else if (r.netProfit!=null && r.netProfit<0) cls='CRITICAL';
     else if (r.netMarginDeltaVs3mo!=null && r.netMarginDeltaVs3mo < -FA_CONFIG.gross_margin_drop_threshold) cls='WATCHLIST';
     else if (medianRev!=null && medianMargin!=null && r.revenue>=medianRev && r.netMarginPct!=null && r.netMarginPct>=medianMargin) cls='STAR';
     else if (r.trend==='Consistent Growth') cls='GROWTH';
