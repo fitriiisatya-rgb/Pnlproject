@@ -1175,15 +1175,24 @@ function faRenderCards6(ctx){
     <div class="fa-cval">${faCompactRp(kpi.revenue)}</div>
     <div class="fa-cdelta">${rpDelta(kpiForCompare.revenue, kpiBase.revenue, true)}${methodTag} <span style="color:#726C9C;">${vsLabel}</span></div>
   </div>`;
-  const gmCard = `<div class="fa-card">
-    <div class="fa-clabel">GP Margin</div>
-    <div class="fa-cval">${kpi.grossMarginPct!=null?truncFixed(kpi.grossMarginPct,1)+'%':'-'}</div>
-    <div class="fa-cdelta">${ppDelta(kpi.grossMarginPct, kpiBase.grossMarginPct, true)} <span style="color:#726C9C;">${vsLabel}</span></div>
+  // EBITDA Margin / EBITDA: di struktur P&L app ini, "Laba Operasional"
+  // (operatingProfit/operatingMarginPct) DIHITUNG SEBELUM Biaya Penyusutan
+  // (Depresiasi), Bunga (Interest), dan Biaya Pajak (Tax) dikurangkan --
+  // baris2 itu baru dikurangkan SETELAH Laba Operasional utk sampai ke Laba
+  // Bersih (lihat rebuildKonsolidasiComputed/rebuildOutletComputed di
+  // index.php). Krn tak ada baris Amortisasi terpisah, Laba Operasional
+  // SECARA STRUKTUR sudah = EBITDA (Earnings Before Interest, Tax,
+  // Depreciation & Amortization) -- jadi dipakai LANGSUNG (angka SAMA persis
+  // dgn yg sudah tervalidasi di tempat lain), bukan kalkulasi baru.
+  const gmCard = `<div class="fa-card" title="Laba Operasional / Revenue -- di struktur P&L ini, Laba Operasional dihitung SEBELUM Penyusutan/Bunga/Pajak dikurangkan, jadi setara EBITDA Margin.">
+    <div class="fa-clabel">EBITDA Margin</div>
+    <div class="fa-cval">${kpi.operatingMarginPct!=null?truncFixed(kpi.operatingMarginPct,1)+'%':'-'}</div>
+    <div class="fa-cdelta">${ppDelta(kpi.operatingMarginPct, kpiBase.operatingMarginPct, true)} <span style="color:#726C9C;">${vsLabel}</span></div>
   </div>`;
-  const npCard = `<div class="fa-card" title="${faEsc(fmtRp(kpi.netProfit))}">
-    <div class="fa-clabel">Net Profit${pm.isOpen?' MTD':''}</div>
-    <div class="fa-cval">${faCompactRp(kpi.netProfit)}</div>
-    <div class="fa-cdelta">${rpDelta(kpiForCompare.netProfit, kpiBase.netProfit, true)}${methodTag} <span style="color:#726C9C;">${vsLabel}</span></div>
+  const npCard = `<div class="fa-card" title="${faEsc(fmtRp(kpi.operatingProfit))} -- Laba Operasional, setara EBITDA krn dihitung sebelum Penyusutan/Bunga/Pajak.">
+    <div class="fa-clabel">EBITDA${pm.isOpen?' MTD':''}</div>
+    <div class="fa-cval">${faCompactRp(kpi.operatingProfit)}</div>
+    <div class="fa-cdelta">${rpDelta(kpiForCompare.operatingProfit, kpiBase.operatingProfit, true)}${methodTag} <span style="color:#726C9C;">${vsLabel}</span></div>
   </div>`;
   const nmCard = `<div class="fa-card">
     <div class="fa-clabel">Net Margin</div>
