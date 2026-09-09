@@ -609,11 +609,27 @@ function faFinancialHealthScore(u, unitKey, pm, ctx){
 function faGroupReconciliation(pm){
   const idx = pm.idx;
   const group = UNIT_DATA.konsolidasi;
+  // BUG (ditemukan via review konsistensi laporan validasi data real): gap
+  // SEBELUMNYA diberi SATU label generik "Corporate / Shared Cost" utk
+  // SEMUA baris termasuk Revenue -- itu keliru, selisih Revenue BUKAN biaya.
+  // Tiap metrik sekarang punya `gapNature` sendiri sesuai sifat aslinya:
+  // Revenue = pendapatan non-outlet (BUKAN biaya); OPEX = memang biaya
+  // korporat/bersama; Gross Profit & Net Profit = KONTRIBUSI campuran
+  // (sebagian dari revenue non-outlet, sebagian dari biaya bersama) --
+  // tidak dilabeli "cost" murni krn tidak akurat, dan komponen persisnya
+  // (Manufaktur vs Head Office vs Ownership vs eliminasi intercompany)
+  // TIDAK dirinci di sini krn tidak bisa diverifikasi tanpa analisis
+  // Counterparty per baris (di luar cakupan fitur ini) -- jangan mengarang
+  // alokasi yg tak didukung data.
   const metrics = [
-    { key:'revenue', label:'Revenue', row:'Pendapatan' },
-    { key:'grossProfit', label:'Gross Profit', row:'Laba Kotor' },
-    { key:'opex', label:'OPEX', row:'Biaya Operasional' },
-    { key:'netProfit', label:'Net Profit', row:'Laba Bersih' },
+    { key:'revenue', label:'Revenue', row:'Pendapatan',
+      gapNature:'Non-Outlet Revenue (Manufaktur, Head Office, Ownership, channel lain di luar 14 outlet fisik -- BUKAN biaya)' },
+    { key:'grossProfit', label:'Gross Profit', row:'Laba Kotor',
+      gapNature:'Kontribusi Non-Outlet (campuran revenue non-outlet & HPP-nya, bukan murni biaya)' },
+    { key:'opex', label:'OPEX', row:'Biaya Operasional',
+      gapNature:'Corporate / Shared Cost (Head Office, biaya operasional bersama di luar 14 outlet)' },
+    { key:'netProfit', label:'Net Profit', row:'Laba Bersih',
+      gapNature:'Kontribusi Non-Outlet (campuran revenue non-outlet & biaya korporat/bersama, bukan murni biaya)' },
   ];
   return metrics.map(m=>{
     const groupVal = (faLine(group, m.row)||[])[idx];
@@ -623,7 +639,7 @@ function faGroupReconciliation(pm){
       if (v!=null){ outletSum = (outletSum||0) + v; anyOutlet = true; }
     });
     const gap = (groupVal!=null && anyOutlet) ? groupVal - outletSum : null;
-    return { key:m.key, label:m.label, groupVal, outletSum: anyOutlet?outletSum:null, gap };
+    return { key:m.key, label:m.label, groupVal, outletSum: anyOutlet?outletSum:null, gap, gapNature:m.gapNature };
   });
 }
 
@@ -1216,7 +1232,7 @@ function faRenderReconciliation(ctx){
     const gapKnown = m.gap!=null;
     const gapLabel = !gapKnown ? 'Not Available (data outlet belum lengkap)'
       : Math.abs(m.gap) < 1 ? 'Rekonsiliasi penuh (Rp0)'
-      : `${fmtRp(m.gap)} — Corporate / Shared Cost (Manufaktur, Head Office, channel di luar 14 outlet, item bersama lain)`;
+      : `${fmtRp(m.gap)} — ${m.gapNature}`;
     return `<tr>
       <td style="padding:9px 14px;font-size:12.5px;">${m.label}</td>
       <td class="mono" style="padding:9px 14px;text-align:right;font-size:12px;">${fmtRp(m.groupVal)}</td>
@@ -1227,7 +1243,7 @@ function faRenderReconciliation(ctx){
   const body = `<div class="tbl-wrap"><table><thead><tr>
       <th style="text-align:left;">Metrik</th><th>Group (Konsolidasi)</th><th>Jumlah 14 Outlet</th><th style="text-align:right;">Selisih</th>
     </tr></thead><tbody>${rows}</tbody></table></div>
-    <div style="font-size:10.5px;color:#726C9C;margin-top:8px;">Group mencakup Manufaktur, Head Office, dan channel di luar 14 outlet fisik -- selisih ini SAH secara akuntansi dan TIDAK didistribusikan diam2 ke outlet manapun.</div>`;
+    <div style="font-size:10.5px;color:#726C9C;margin-top:8px;">Group mencakup Manufaktur, Head Office, Ownership, dan channel di luar 14 outlet fisik -- selisih ini SAH secara akuntansi dan TIDAK didistribusikan diam2 ke outlet manapun. Rincian persis per entity (Manufaktur vs Head Office vs eliminasi intercompany) tidak ditampilkan di sini krn tidak bisa diverifikasi tanpa analisis Counterparty per baris.</div>`;
   return faCard('Group Reconciliation — Group vs Jumlah Outlet', body);
 }
 
