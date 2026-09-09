@@ -28,6 +28,15 @@
   .sb-toggle-btn:hover { color:#F5F3FF; border-color:#FFC93C; }
   .sidebar.collapsed { width: 46px; padding: 20px 10px; }
   .sidebar.collapsed #sidebarInner { display: none; }
+  /* Hamburger + backdrop -- HANYA aktif di mobile/tablet (lihat media query
+     di bawah, di sini cuma base state tersembunyi). Tombol ini LIVE DI LUAR
+     .sidebar (fixed ke viewport) supaya tetap terlihat/bisa diklik walau
+     sidebar sedang off-canvas (translateX(-100%)) -- beda dgn #sbToggleBtn
+     desktop yg hidup DI DALAM sidebar & percuma kalau sidebar-nya sendiri
+     lagi disembunyikan. */
+  .mobile-nav-toggle { display:none; align-items:center; justify-content:center; width:40px; height:40px; border-radius:10px; border:1px solid var(--border); background:#1C1840; color:#F5F3FF; cursor:pointer; position:fixed; top:12px; left:12px; z-index:71; font-size:17px; box-shadow:0 6px 16px rgba(0,0,0,.4); }
+  .mobile-nav-backdrop { display:none; position:fixed; inset:0; background:rgba(6,5,16,.62); z-index:65; }
+  .mobile-nav-backdrop.open { display:block; }
   .sidebar-logo { font-family: 'Space Grotesk', sans-serif; font-weight: 800; font-size: 13px; line-height: 1.35; color: #F5F3FF; padding: 4px 10px 18px; letter-spacing: -.01em; }
   .sb-group { margin-bottom: 4px; }
   .sb-group-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 10px; border-radius: 9px; cursor: pointer; font-family: 'Space Grotesk', sans-serif; font-size: 12.5px; font-weight: 700; color: #9B93C4; letter-spacing: .01em; }
@@ -56,9 +65,25 @@
        dalamnya lalu discroll oleh .tbl-wrap (overflow-x:auto, sudah ada
        sebelumnya) SECARA LOKAL, bukan menggeser seluruh halaman. */
     .app-shell { flex-direction: column; align-items: stretch; }
-    .sidebar { width: 100%; min-height: auto; position: relative; border-right: none; border-bottom: 1px solid #2A2650; }
-    .sidebar.collapsed { width: 100%; height: 46px; min-height: 46px; padding: 10px 12px; }
-    .main-content { padding: 18px 16px; }
+    /* Sidebar jadi DRAWER off-canvas (bukan lagi ditumpuk di atas konten):
+       tersembunyi di luar layar (translateX -100%) SECARA DEFAULT, meluncur
+       masuk dari kiri saat dibuka via tombol hamburger (.mobile-nav-toggle)
+       -- jadi menu tetap "di kiri" spt desktop, tapi tak lagi makan tempat
+       vertikal permanen di atas konten (poin keluhan user: harus scroll
+       lewat seluruh menu dulu baru sampai ke isi dashboard). */
+    .sidebar {
+      position: fixed; top: 0; left: 0; bottom: 0; z-index: 70;
+      width: 280px; max-width: 84vw; height: 100vh; min-height: 100vh;
+      border-right: 1px solid #2A2650; border-bottom: none;
+      padding-top: 64px; /* spy sidebar-logo tak ketutup tombol hamburger fixed (z-index lebih tinggi, ada di atasnya) */
+      transform: translateX(-100%); transition: transform .22s ease;
+      overflow-y: auto; box-shadow: 16px 0 40px rgba(0,0,0,.5);
+    }
+    .sidebar.mobile-open { transform: translateX(0); }
+    .sidebar.collapsed #sidebarInner { display: block; } /* collapse desktop diabaikan di mobile -- di sini buka/tutup dikendalikan .mobile-open, bukan .collapsed */
+    .sb-toggle-btn { display: none; } /* tombol collapse desktop disembunyikan, digantikan hamburger */
+    .mobile-nav-toggle { display: flex; }
+    .main-content { padding: 62px 16px 18px; } /* extra padding-top spy konten tak ketutup tombol hamburger yg fixed */
   }
   .tab-btn { display: flex; align-items: center; gap: 7px; padding: 9px 16px; border-radius: 10px; cursor: pointer; font-family: 'Space Grotesk',sans-serif; font-size: 13px; font-weight: 600; background: var(--panel); color: var(--muted); border: 1px solid var(--border); }
   .tab-btn.active { color: #0E0C22; }
@@ -246,6 +271,8 @@
 <!-- ================= DASHBOARD ================= -->
 <div id="dashboard">
 <div class="app-shell">
+  <button class="mobile-nav-toggle" id="mobileNavToggleBtn" onclick="toggleMobileNav()" title="Menu">☰</button>
+  <div class="mobile-nav-backdrop" id="mobileNavBackdrop" onclick="closeMobileNav()"></div>
   <nav class="sidebar" id="sidebar">
     <button class="sb-toggle-btn" id="sbToggleBtn" onclick="toggleSidebarCollapse()" title="Sembunyikan/tampilkan menu">◀</button>
     <div id="sidebarInner"></div>
@@ -2918,6 +2945,21 @@ function toggleSidebarCollapse(){
   if (btn) btn.textContent = sidebarCollapsed ? '▶' : '◀';
 }
 
+// Drawer mobile/tablet (≤860px) -- terpisah dari sidebarCollapsed desktop.
+// Default TERTUTUP (poin keluhan user: sebelumnya sidebar penuh tertumpuk
+// di ATAS konten, jadi mesti discroll lewat semua menu dulu). Tombol
+// hamburger (di luar <nav>, lihat CSS .mobile-nav-toggle) selalu terlihat
+// spy tetap bisa dibuka kapan saja, plus tap backdrop / pilih menu = auto-tutup.
+let mobileNavOpen = false;
+function applyMobileNavState(){
+  const el = document.getElementById('sidebar');
+  const bd = document.getElementById('mobileNavBackdrop');
+  if (el) el.classList.toggle('mobile-open', mobileNavOpen);
+  if (bd) bd.classList.toggle('open', mobileNavOpen);
+}
+function toggleMobileNav(){ mobileNavOpen = !mobileNavOpen; applyMobileNavState(); }
+function closeMobileNav(){ mobileNavOpen = false; applyMobileNavState(); }
+
 function findGroupForUnit(unitKey){
   for (const g of SIDEBAR_GROUPS){
     if (g.items.some(it => it.key === unitKey)) return g.key;
@@ -2933,6 +2975,7 @@ function navigateTo(unitKey){
   const g = findGroupForUnit(unitKey);
   if (g) sidebarOpenGroups.add(g);
   setUnit(unitKey); // render() dipanggil di dalam setUnit, termasuk renderSidebar()
+  closeMobileNav(); // no-op di desktop (class .mobile-open tak dipakai di luar media query ≤860px)
 }
 function renderSidebar(){
   const el = document.getElementById('sidebarInner');
@@ -7955,6 +7998,24 @@ async function diagnoseOnline(){
   say(out, '#F5F3FF');
 }
 
+// fetch() browser TIDAK punya timeout bawaan -- kalau endpoint Google lelet/
+// stall, "Menghubungkan..." bisa nggantung lama sblm akhirnya gagal wajar.
+// AbortController maksa fetch nyerah setelah N detik, spy fallback (atau
+// pesan gagal) muncul CEPAT drpd user nunggu tanpa kepastian.
+async function fetchWithTimeout(url, timeoutMs = 9000){
+  const ctrl = new AbortController();
+  const timer = setTimeout(()=>ctrl.abort(), timeoutMs);
+  try { return await fetch(url, { signal: ctrl.signal }); }
+  finally { clearTimeout(timer); }
+}
+
+// Sheet "Data" (utama) & sheet "Online" (detail split kanal) TIDAK saling
+// bergantung -- sebelumnya di-fetch BERURUTAN (data dulu, baru online),
+// shg total waktu tunggu = jumlah keduanya. Sekarang keduanya DIJALANKAN
+// BERSAMAAN (Promise.all) spy total waktu tunggu = yg PALING LAMA dari
+// keduanya, bukan jumlahnya -- mempercepat proses "Menghubungkan..." tanpa
+// mengubah urutan gviz->Apps Script fallback di masing2 (poin permintaan
+// user: percepat koneksi, tanpa ganti sumber data/logic).
 async function loadLiveData(){
   const statusEl = document.getElementById('liveStatus');
   const setStatus = (text, color) => { if (statusEl){ statusEl.textContent = text; statusEl.style.color = color; } };
@@ -7965,68 +8026,49 @@ async function loadLiveData(){
     if (dot) dot.style.background = dotColor;
     if (badgeText) badgeText.textContent = text;
   };
+  setStatus('🔄 Menghubungkan...', '#9B93C4');
+  setBadge('#F5C147', 'Menghubungkan...');
 
-  let allRows = null;
-  let sourceUsed = '';
-
-  // --- Coba gviz/tq dulu (CSV bawaan Google, tanpa deploy, tanpa risiko Date-object) ---
-  if (GVIZ_SPREADSHEET_ID) {
-    setStatus('🔄 Menghubungkan via gviz (Google Sheets bawaan)...', '#9B93C4');
-    setBadge('#F5C147', 'Menghubungkan...');
-    try {
-      const gvizUrl = `https://docs.google.com/spreadsheets/d/${GVIZ_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(GVIZ_SHEET_NAME)}&t=${Date.now()}`;
-      const res = await fetch(gvizUrl);
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const text = await res.text();
-      if (text.trim().startsWith('<!') || text.trim().startsWith('<html')) {
-        throw new Error('Google mengembalikan HTML, bukan CSV -- kemungkinan sheet belum di-share "Anyone with link" atau nama tab salah');
+  // --- Fetch sheet "Data" (utama): gviz dulu, fallback Apps Script ---
+  async function fetchMainData(){
+    if (GVIZ_SPREADSHEET_ID) {
+      try {
+        const gvizUrl = `https://docs.google.com/spreadsheets/d/${GVIZ_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(GVIZ_SHEET_NAME)}&t=${Date.now()}`;
+        const res = await fetchWithTimeout(gvizUrl);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const text = await res.text();
+        if (text.trim().startsWith('<!') || text.trim().startsWith('<html')) {
+          throw new Error('Google mengembalikan HTML, bukan CSV -- kemungkinan sheet belum di-share "Anyone with link" atau nama tab salah');
+        }
+        const allRows = csvRowsToObjects(text);
+        if (!allRows.length) throw new Error('CSV terbaca tapi 0 baris -- cek header kolom di tab "' + GVIZ_SHEET_NAME + '"');
+        return { allRows, sourceUsed: 'gviz' };
+      } catch (e) {
+        console.warn('gviz/tq gagal, coba fallback ke Apps Script:', e.message);
       }
-      allRows = csvRowsToObjects(text);
-      if (!allRows.length) throw new Error('CSV terbaca tapi 0 baris -- cek header kolom di tab "' + GVIZ_SHEET_NAME + '"');
-      sourceUsed = 'gviz';
-    } catch (e) {
-      console.warn('gviz/tq gagal, coba fallback ke Apps Script:', e.message);
     }
-  }
-
-  // --- Fallback ke Apps Script kalau gviz tidak diisi/gagal ---
-  if (!allRows && APPS_SCRIPT_URL) {
-    setStatus('🔄 Menghubungkan via Apps Script...', '#9B93C4');
-    setBadge('#F5C147', 'Menghubungkan...');
-    try {
-      const res = await fetch(APPS_SCRIPT_URL);
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const json = await res.json();
-      if (!Array.isArray(json)) throw new Error('Response bukan array JSON');
-      allRows = json;
-      sourceUsed = 'apps-script';
-    } catch (e) {
-      console.error('Live fetch GAGAL total (gviz & Apps Script keduanya gagal/tidak diisi):', e);
-      setStatus('🔴 Live-fetch GAGAL (' + e.message + '). Pakai data statis bawaan.', '#FB7185');
-      setBadge('#FB7185', 'Gagal terhubung');
-      if (meta) meta.textContent = 'Percobaan terakhir: ' + new Date().toLocaleTimeString('id-ID') + ' (gagal)';
-      return;
+    if (APPS_SCRIPT_URL) {
+      try {
+        const res = await fetchWithTimeout(APPS_SCRIPT_URL);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const json = await res.json();
+        if (!Array.isArray(json)) throw new Error('Response bukan array JSON');
+        return { allRows: json, sourceUsed: 'apps-script' };
+      } catch (e) {
+        return { error: e };
+      }
     }
+    return { allRows: null, sourceUsed: '' };
   }
-
-  if (!allRows){
-    setStatus('⚪ Live-fetch tidak aktif (GVIZ_SPREADSHEET_ID & APPS_SCRIPT_URL kosong) -- pakai data statis bawaan.', '#726C9C');
-    setBadge('#726C9C', 'Tidak aktif');
-    return;
-  }
-
-  mergePeriodsFromRows(allRows);
-  const { matched, warnings, added } = applyRowsToUnitData(allRows);
 
   // --- Sheet kedua "Online": detail Pendapatan Online (Harga Normal vs
   //     Adjustment) utk split kanal Online/Offline. Sheet TERPISAH dari "Data"
-  //     (keputusan user), jadi perlu fetch sendiri. Kegagalan sheet ini TIDAK
-  //     menggagalkan dashboard -- split online cuma tidak tampil.
-  if (GVIZ_SPREADSHEET_ID || APPS_SCRIPT_URL) {
-    // Ambil baris Online dari respons apa pun -> normalisasi ke bentuk objek
-    // {Period, Path, Amount, ...}. parseOnlineRows() sudah toleran objek/array.
+  //     (keputusan user). Kegagalan sheet ini TIDAK menggagalkan dashboard --
+  //     split online cuma tidak tampil. Apps Script dulu (terbukti bekerja di
+  //     environment user), fallback gviz.
+  async function fetchOnlineData(){
+    if (!GVIZ_SPREADSHEET_ID && !APPS_SCRIPT_URL) return;
     function acceptOnline(rows, via){
-      // verifikasi ini benar sheet Online (ada Harga Normal / Adjustment)
       const asText = JSON.stringify(rows);
       if (!/Harga Normal|Adjustment Harga/i.test(asText)) {
         ONLINE_FETCH_STATUS = `Data ter-ambil (${via}) tapi BUKAN sheet Online (tak ada "Harga Normal"/"Adjustment").`;
@@ -8038,13 +8080,11 @@ async function loadLiveData(){
       return true;
     }
 
-    // 1) UTAMA: Apps Script ?sheet=Online -- jalur yg TERBUKTI bekerja di
-    //    environment user (gviz/docs.google.com diblokir CORS di localhost).
     let done = false;
     if (APPS_SCRIPT_URL) {
       try {
         const sep = APPS_SCRIPT_URL.includes('?') ? '&' : '?';
-        const res2 = await fetch(`${APPS_SCRIPT_URL}${sep}sheet=${encodeURIComponent(GVIZ_ONLINE_SHEET)}&t=${Date.now()}`);
+        const res2 = await fetchWithTimeout(`${APPS_SCRIPT_URL}${sep}sheet=${encodeURIComponent(GVIZ_ONLINE_SHEET)}&t=${Date.now()}`);
         if (res2.ok) {
           const j = await res2.json();
           if (Array.isArray(j)) done = acceptOnline(j, 'apps-script');
@@ -8053,11 +8093,10 @@ async function loadLiveData(){
       } catch(e){ ONLINE_FETCH_STATUS = 'Apps Script gagal: ' + e.message; }
     }
 
-    // 2) CADANGAN: gviz (kalau Apps Script tak tersedia/gagal & gviz bisa)
     if (!done && GVIZ_SPREADSHEET_ID) {
       try {
         const sheetParam = GVIZ_ONLINE_GID ? `gid=${encodeURIComponent(GVIZ_ONLINE_GID)}` : `sheet=${encodeURIComponent(GVIZ_ONLINE_SHEET)}`;
-        const res3 = await fetch(`https://docs.google.com/spreadsheets/d/${GVIZ_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&${sheetParam}&t=${Date.now()}`);
+        const res3 = await fetchWithTimeout(`https://docs.google.com/spreadsheets/d/${GVIZ_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&${sheetParam}&t=${Date.now()}`);
         if (res3.ok) {
           const t3 = await res3.text();
           if (!t3.trim().startsWith('<')) {
@@ -8071,16 +8110,32 @@ async function loadLiveData(){
         }
       } catch(e){ ONLINE_FETCH_STATUS = 'gviz gagal: ' + e.message; }
     }
-    // Jaring pengaman TERAKHIR: kalau sampai sini masih belum ada status SAMA
-    // SEKALI (mis. APPS_SCRIPT_URL kosong DAN GVIZ_SPREADSHEET_ID kosong,
-    // atau kombinasi kondisi lain yg tak terduga), jangan biarkan banner
-    // kosong tanpa penjelasan -- itu yg bikin sulit didiagnosis sebelumnya.
     if (!done && !ONLINE_FETCH_STATUS) {
       ONLINE_FETCH_STATUS = !APPS_SCRIPT_URL && !GVIZ_SPREADSHEET_ID
         ? 'APPS_SCRIPT_URL & GVIZ_SPREADSHEET_ID dua-duanya kosong -- tak ada jalur fetch yg dicoba sama sekali.'
         : 'Tak ada baris valid diterima dari kedua jalur (apps-script & gviz), penyebab pasti tak terdeteksi -- cek Console.';
     }
   }
+
+  // Jalankan KEDUANYA bersamaan -- ini inti percepatannya.
+  const [mainResult] = await Promise.all([ fetchMainData(), fetchOnlineData() ]);
+
+  if (mainResult.error) {
+    console.error('Live fetch GAGAL total (gviz & Apps Script keduanya gagal/tidak diisi):', mainResult.error);
+    setStatus('🔴 Live-fetch GAGAL (' + mainResult.error.message + '). Pakai data statis bawaan.', '#FB7185');
+    setBadge('#FB7185', 'Gagal terhubung');
+    if (meta) meta.textContent = 'Percobaan terakhir: ' + new Date().toLocaleTimeString('id-ID') + ' (gagal)';
+    return;
+  }
+  const { allRows, sourceUsed } = mainResult;
+  if (!allRows){
+    setStatus('⚪ Live-fetch tidak aktif (GVIZ_SPREADSHEET_ID & APPS_SCRIPT_URL kosong) -- pakai data statis bawaan.', '#726C9C');
+    setBadge('#726C9C', 'Tidak aktif');
+    return;
+  }
+
+  mergePeriodsFromRows(allRows);
+  const { matched, warnings, added } = applyRowsToUnitData(allRows);
 
   console.log(`Live fetch (${sourceUsed}): ${matched} baris cocok, ${added} baris akun baru ditambahkan, ${warnings.length} tidak ketemu.`);
   setStatus('', '#726C9C'); // bersihkan pesan "Menghubungkan..." -- status sukses cukup lewat badge+meta, tak perlu baris terpisah lagi
