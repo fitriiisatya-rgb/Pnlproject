@@ -43,7 +43,19 @@
   .sb-empty-note { padding: 8px 14px 8px 26px; font-size: 11px; color: #4A4568; font-style: italic; }
   .main-content { flex: 1; min-width: 0; padding: 24px 28px; }
   @media (max-width: 860px) {
-    .app-shell { flex-direction: column; }
+    /* FIX responsive table overflow (root cause): .app-shell punya
+       "align-items: flex-start" utk layout desktop (row) supaya sidebar
+       tetap setinggi kontennya sendiri, bukan diregangkan. Tapi begitu
+       flex-direction jadi column di mobile/tablet, align-items justru
+       mengatur LEBAR (cross-axis-nya column = horizontal), dan flex-start
+       berarti "lebar = lebar konten" (shrink-to-fit) -- jadi .main-content
+       ikut melebar mengikuti tabel terlebarnya (bisa 600-900px+) alih-alih
+       dibatasi ke lebar viewport, dan SELURUH HALAMAN ikut ter-scroll
+       horizontal. align-items:stretch di sini membuat .main-content (dan
+       .sidebar) selalu 100% lebar viewport spt seharusnya; tabel lebar di
+       dalamnya lalu discroll oleh .tbl-wrap (overflow-x:auto, sudah ada
+       sebelumnya) SECARA LOKAL, bukan menggeser seluruh halaman. */
+    .app-shell { flex-direction: column; align-items: stretch; }
     .sidebar { width: 100%; min-height: auto; position: relative; border-right: none; border-bottom: 1px solid #2A2650; }
     .sidebar.collapsed { width: 100%; height: 46px; min-height: 46px; padding: 10px 12px; }
     .main-content { padding: 18px 16px; }
