@@ -142,6 +142,89 @@
   .cd-multi-grid { display:flex; gap:14px; overflow-x:auto; padding-bottom:8px; }
   .cd-multi-grid > .cd-panel { flex:0 0 300px; min-width:300px; }
   @media (max-width:760px) { .cd-dual-grid { grid-template-columns:1fr; } }
+  /* Detail Comparison tabs (Side by Side / Biasa / Franchise) -- desktop:
+     tab bar disembunyikan, kedua panel tampil berdampingan spt biasa via
+     .cd-dual-grid di atas. Mobile/tablet: tab bar tampil, HANYA 1 panel
+     ditampilkan sesuai data-tab (murni CSS attribute-selector, di-toggle
+     oleh cdSetDetailTab() tanpa re-render). */
+  .cd-detail-tabs-wrap > .fa-tabs2 { display:none; }
+  @media (max-width:760px) {
+    .cd-detail-tabs-wrap > .fa-tabs2 { display:flex; margin-bottom:12px; }
+    .cd-dual-grid[data-tab="biasa"] > .cd-panel:nth-child(2) { display:none; }
+    .cd-dual-grid[data-tab="franchise"] > .cd-panel:nth-child(1) { display:none; }
+  }
+
+  /* ===== Financial Intelligence redesign (Management Overview, P&L Cabang,
+     OPEX, Grafik) -- filter bar, KPI cards, period picker, tabs. Dark theme
+     tetap dipakai (var(--panel)/var(--border)/var(--yellow) dst, TIDAK ganti
+     ke light theme). Responsif utk 1440/1024/834/768/430/390/375. ===== */
+  .fa-filters { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; background:var(--panel); border:1px solid var(--border); border-radius:15px; padding:12px; margin-bottom:14px; }
+  .fa-filter-cell { background:#13112B; border:1px solid #2D2850; border-radius:10px; padding:9px 11px; min-width:0; position:relative; }
+  .fa-filter-cell.clickable { cursor:pointer; }
+  .fa-filter-cell.clickable:hover { border-color:var(--yellow); }
+  .fa-filter-cell > span.fa-flabel { display:block; color:var(--dim); font-size:9px; text-transform:uppercase; letter-spacing:.7px; margin-bottom:5px; }
+  .fa-filter-cell select { background:transparent; border:none; color:var(--text); font-size:12px; font-weight:700; font-family:'Space Grotesk',sans-serif; width:100%; padding:0; }
+  .fa-filter-cell select:focus { outline:none; }
+  .fa-filter-val { font-size:12px; font-weight:700; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  .fa-cards6 { display:grid; grid-template-columns:repeat(6,minmax(120px,1fr)); gap:10px; margin-bottom:14px; }
+  .fa-cards5 { display:grid; grid-template-columns:repeat(5,minmax(120px,1fr)); gap:10px; margin-bottom:14px; }
+  .fa-card { background:linear-gradient(180deg,#1B183A,#17142F); border:1px solid #37305F; border-radius:14px; padding:13px; min-width:0; }
+  .fa-card .fa-clabel { font-size:9px; color:var(--dim); text-transform:uppercase; letter-spacing:.6px; margin-bottom:7px; }
+  .fa-card .fa-cval { font-size:20px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-family:'Plus Jakarta Sans',sans-serif; }
+  .fa-card .fa-cdelta { font-size:10px; margin-top:6px; }
+
+  .fa-grid2 { display:grid; grid-template-columns:1.15fr .85fr; gap:14px; margin-bottom:14px; }
+  .fa-grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:14px; }
+  .fa-insight { padding:10px 11px; border-radius:11px; background:#14122D; border:1px solid #2D2950; margin-bottom:8px; font-size:11.5px; line-height:1.5; }
+  .fa-insight:last-child { margin-bottom:0; }
+  .fa-driver-row { display:flex; justify-content:space-between; gap:10px; padding:9px 0; border-bottom:1px solid #2B274F; font-size:12px; }
+  .fa-driver-row:last-child { border-bottom:0; }
+  .fa-driver-row small { display:block; color:var(--dim); margin-top:3px; }
+  .fa-action-card { padding:11px; border:1px solid #2D2954; border-radius:11px; background:#14122D; }
+  .fa-action-card b { font-size:11px; } .fa-action-card p { font-size:11px; color:var(--dim); line-height:1.4; margin:4px 0 0; }
+
+  /* Period picker: dropdown inline (desktop) yg jadi bottom-sheet (mobile/tablet) */
+  .fa-period-backdrop { display:none; }
+  .fa-period-panel { position:absolute; top:calc(100% + 6px); left:0; z-index:40; width:340px; max-width:calc(100vw - 32px); background:#171433; border:1px solid var(--border); border-radius:14px; padding:14px; box-shadow:0 18px 40px rgba(0,0,0,.45); }
+  .fa-preset-row { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; }
+  .fa-preset-chip { font-size:11px; padding:6px 10px; border-radius:999px; border:1px solid var(--border); color:var(--muted); cursor:pointer; background:transparent; }
+  .fa-preset-chip:hover { border-color:var(--yellow); color:var(--text); }
+  .fa-month-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin:10px 0; }
+  .fa-month-cell { font-size:11px; text-align:center; padding:7px 4px; border-radius:8px; border:1px solid var(--border); color:var(--muted); cursor:pointer; }
+  .fa-month-cell.on { background:#241F4D; border-color:var(--yellow); color:var(--yellow); font-weight:700; }
+  .fa-picker-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:10px; }
+  .fa-picker-btn { font-size:11.5px; padding:8px 14px; border-radius:8px; border:1px solid var(--border); background:#1F1B3D; color:var(--muted); cursor:pointer; }
+  .fa-picker-btn.primary { background:var(--yellow); color:#0E0C22; font-weight:700; border-color:transparent; }
+
+  .fa-tabs2 { display:flex; gap:7px; flex-wrap:wrap; margin-bottom:12px; }
+  .fa-tab2 { font-size:10.5px; padding:6px 10px; border:1px solid var(--border); border-radius:999px; color:var(--muted); cursor:pointer; background:transparent; }
+  .fa-tab2.active { background:#2B2457; color:#fff; border-color:#594E9C; }
+  .fa-rank-list { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  .fa-rank { background:#14122D; border:1px solid #2F2B55; border-radius:12px; padding:11px; }
+  .fa-rank span { font-size:9px; color:var(--dim); display:block; margin-bottom:5px; } .fa-rank b { font-size:12px; }
+  .fa-mini4 { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  .fa-mini { background:#14122D; border:1px solid #2E2A54; border-radius:11px; padding:10px; }
+  .fa-mini span { font-size:9px; color:var(--dim); display:block; margin-bottom:4px; } .fa-mini b { font-size:12px; }
+  .fa-est-tag { font-size:9px; color:var(--yellow); font-weight:700; margin-left:5px; padding:1px 5px; border:1px solid var(--yellow); border-radius:5px; vertical-align:middle; }
+
+  @media (max-width:1200px){ .fa-cards6, .fa-cards5 { grid-template-columns:repeat(3,1fr); } .fa-grid2 { grid-template-columns:1fr; } .fa-rank-list{grid-template-columns:repeat(2,1fr);} }
+  @media (max-width:1100px){ .fa-filters { grid-template-columns:repeat(2,1fr); } }
+  @media (max-width:900px){ .fa-grid3 { grid-template-columns:1fr; } .fa-mini4{grid-template-columns:repeat(2,1fr);} }
+  @media (max-width:860px){
+    .fa-cards6, .fa-cards5 { grid-template-columns:repeat(2,1fr); }
+    /* Period picker jadi bottom-sheet penuh lebar di mobile/tablet, bukan dropdown kecil */
+    .fa-period-panel { position:fixed; left:0; right:0; bottom:0; top:auto; width:auto; max-width:none; border-radius:18px 18px 0 0; max-height:80vh; overflow:auto; }
+    .fa-period-backdrop.open { display:block; position:fixed; inset:0; background:rgba(6,5,16,.6); z-index:39; }
+    .fa-picker-actions { position:sticky; bottom:-14px; background:#171433; padding-top:10px; margin-top:10px; }
+  }
+  @media (max-width:430px){
+    .fa-cards6, .fa-cards5 { grid-template-columns:repeat(2,1fr); gap:7px; }
+    .fa-card { padding:10px; } .fa-card .fa-cval { font-size:16px; }
+    .fa-filters { grid-template-columns:repeat(2,1fr); gap:7px; }
+    .fa-month-grid { grid-template-columns:repeat(4,1fr); }
+    .fa-rank-list{grid-template-columns:1fr 1fr;}
+  }
 </style>
 </head>
 <body>
@@ -2349,6 +2432,7 @@ const UNIT_DATA = {
   franchiseCompare:{ label: 'Perbandingan Custom (Franchise)', color: '#22D3C5', grounded: 'estimasi', waterfall: [] },
   cabangDiff:      { label: 'Validasi · Biasa vs Franchise', color: '#E066FF', grounded: 'real', waterfall: [] },
   home: { label: 'Beranda', color: '#FFC93C', grounded: 'kosong', waterfall: [] },
+  opexOverview: { label: 'Opex · Overview', color: '#FFC93C', grounded: 'real', waterfall: [] },
   opexTrend: { label: 'Opex · Tren % Pendapatan', color: '#FFC93C', grounded: 'real', waterfall: [] },
   opexPareto: { label: 'Opex · Pareto Biaya', color: '#FFC93C', grounded: 'real', waterfall: [] },
   opexOutlet: { label: 'Opex · Efisiensi per Outlet', color: '#FFC93C', grounded: 'real', waterfall: [] },
@@ -2753,7 +2837,7 @@ function setUnit(k){ state.unit=k; render(); }
 // Cabang / Opex / Bank. Item PNL Cabang diisi otomatis dari OUTLET_KEYS
 // (urut abjad) supaya nambah outlet baru tak perlu ubah struktur ini.
 const SIDEBAR_GROUPS = [
-  { key:'financialAnalysis', label:'Financial Analysis', items:[
+  { key:'financialAnalysis', label:'Overview & Intelligence', items:[
       { key:'faOverview', label:'Overview' },
       { key:'faTrend',    label:'Trend' },
       { key:'faExpense',  label:'Expense' },
@@ -2778,6 +2862,7 @@ const SIDEBAR_GROUPS = [
       { key:'cabangDiff', label:'Biasa vs Franchise' },
   ]},
   { key:'opex', label:'Opex', items:[
+      { key:'opexOverview', label:'Overview' },
       { key:'opexTrend',   label:'Tren % Pendapatan' },
       { key:'opexPareto',  label:'Pareto Biaya' },
       { key:'opexOutlet',  label:'Efisiensi per Outlet' },
@@ -2798,11 +2883,12 @@ const SIDEBAR_GROUPS = [
       { key:'leakJenis',   label:'Rincian per Jenis' },
       { key:'leakOutlet',  label:'Peringkat per Outlet' },
   ]},
-  { key:'grafik', label:'Grafik', items:[
+  // Digabung (poin: sidebar regroup arah mockup "Grafik & Control") --
+  // Grafik Custom + Validasi Data dulu 2 grup terpisah, isinya masing2 cuma
+  // 1 item shg digabung 1 grup tak bikin daftar kepanjangan/susah dibaca.
+  { key:'grafik', label:'Grafik & Control', items:[
       { key:'grafikCustom', label:'Grafik Custom' },
-  ]},
-  { key:'validasi', label:'Validasi Data', items:[
-      { key:'rekonsiliasi', label:'Rekonsiliasi Otomatis' },
+      { key:'rekonsiliasi', label:'Validasi Data & Rekonsiliasi' },
   ]},
   { key:'bank', label:'Bank', items:[
       { key:'bankPlaceholder', label:'(segera hadir)' },
@@ -4829,6 +4915,98 @@ function cdPanelHtml(judul, warna, rows, catatan){
     </div>`;
 }
 
+// ===== P&L Cabang redesign helpers =====
+// Status badge Gap% (NORMAL/WATCH/CRITICAL) -- ambang sama utk Ringkasan
+// Selisih & Ranking, murni dari |Gap%| yg sudah dihitung computeCabangDiffBlock
+// (tidak menambah angka baru, cuma klasifikasi visual dari angka yg sudah ada).
+function cdStatusBadge(pctAbs){
+  if (pctAbs==null) return `<span style="background:#2A265022;color:#726C9C;border:1px solid #2A2650;border-radius:8px;padding:2px 8px;font-size:9.5px;font-weight:700;">N/A</span>`;
+  const level = pctAbs<10 ? 'NORMAL' : pctAbs<35 ? 'WATCH' : 'CRITICAL';
+  const color = level==='NORMAL' ? '#4ADE80' : level==='WATCH' ? '#FFC93C' : '#FB7185';
+  return `<span style="background:${color}22;color:${color};border:1px solid ${color};border-radius:8px;padding:2px 8px;font-size:9.5px;font-weight:700;">${level}</span>`;
+}
+
+// Summary cards (5) + Ringkasan Selisih table + "Why the Gap" insight panel
+// utk SATU bakery -- semua nilai diambil langsung dari blk.ringkas yg sudah
+// dihitung computeCabangDiffBlock (bukan angka baru/hardcode dari mockup).
+function cdSummaryAndGapHtml(blk){
+  const omset = blk.ringkas[0], nb = blk.ringkas[3];
+  const hasF = !!blk.rowsFr;
+  const confidence = !hasF ? 'Franchise N/A' : 'Mixed';
+  const confColor = !hasF ? '#726C9C' : '#FFC93C';
+  const cards = `<div class="fa-cards5">
+    <div class="fa-card"><div class="fa-clabel">Omzet Biasa</div><div class="fa-cval">${faCompactRp(omset.b)}</div><div class="fa-cdelta" style="color:#726C9C;">Total periode terpilih</div></div>
+    <div class="fa-card"><div class="fa-clabel">Omzet Franchise</div><div class="fa-cval">${omset.f!=null?faCompactRp(omset.f):'-'}</div><div class="fa-cdelta">${omset.pct!=null?faDeltaBadge(omset.pct,true):'<span style="color:#726C9C;">-</span>'}</div></div>
+    <div class="fa-card"><div class="fa-clabel">Gap Omzet</div><div class="fa-cval">${omset.pct!=null?(omset.pct>=0?'+':'')+omset.pct.toFixed(1)+'%':'-'}</div><div class="fa-cdelta" style="color:#726C9C;">${omset.pct!=null && Math.abs(omset.pct)<5?'Relatif dekat':''}</div></div>
+    <div class="fa-card"><div class="fa-clabel">Gap Laba Bersih</div><div class="fa-cval">${nb.diff!=null?faCompactRp(Math.abs(nb.diff)):'-'}</div><div class="fa-cdelta" style="color:${nb.big?'#FB7185':'#4ADE80'};font-weight:700;">${nb.pct!=null?Math.abs(nb.pct).toFixed(1)+'%':'-'}</div></div>
+    <div class="fa-card"><div class="fa-clabel">Data Confidence</div><div class="fa-cval" style="font-size:15px;color:${confColor};">${confidence}</div><div class="fa-cdelta" style="color:#726C9C;">${hasF?'Franchise berisi estimasi':'Belum ada data Online'}</div></div>
+  </div>`;
+
+  const ringkasTable = `<div class="tbl-wrap"><table>
+    <thead><tr><th style="text-align:left;padding:7px 10px;font-size:10px;">KPI</th><th style="padding:7px 10px;font-size:10px;">Biasa</th><th style="padding:7px 10px;font-size:10px;">Franchise</th><th style="padding:7px 10px;font-size:10px;">Gap</th><th style="padding:7px 10px;font-size:10px;">Gap %</th><th style="padding:7px 10px;font-size:10px;">Status</th></tr></thead>
+    <tbody>${blk.ringkas.map(r=>`<tr>
+        <td style="padding:8px 10px;font-size:11.5px;">${r.label}</td>
+        <td class="mono" style="padding:8px 10px;text-align:right;font-size:11px;">${r.b==null?'-':fmtRp(r.b)}</td>
+        <td class="mono" style="padding:8px 10px;text-align:right;font-size:11px;">${r.f==null?'-':fmtRp(r.f)}</td>
+        <td class="mono" style="padding:8px 10px;text-align:right;font-size:11px;color:${r.diff==null?'#4A4568':(r.big?'#FB7185':'#4ADE80')};">${r.diff==null?'-':(r.diff>=0?'+':'')+fmtRp(r.diff)}</td>
+        <td class="mono" style="padding:8px 10px;text-align:right;font-size:11px;">${r.pct==null?'-':r.pct.toFixed(1)+'%'}</td>
+        <td style="padding:8px 10px;text-align:center;">${cdStatusBadge(r.pct==null?null:Math.abs(r.pct))}</td>
+      </tr>`).join('')}</tbody>
+  </table></div>`;
+  const ringkasCol = `<div class="fa-card" style="min-width:0;"><div class="fa-clabel" style="margin-bottom:8px;">Ringkasan Selisih</div>${ringkasTable}</div>`;
+
+  const revGapAbs = omset.pct!=null ? Math.abs(omset.pct) : null;
+  const npGapAbs = nb.pct!=null ? Math.abs(nb.pct) : null;
+  const insights = [];
+  insights.push(revGapAbs!=null
+    ? `<b>Revenue gap ${revGapAbs<10?'kecil':'material'}.</b> Omzet Biasa dan Franchise berbeda sekitar ${revGapAbs.toFixed(1)}%.`
+    : `<b>Omzet Franchise belum bisa dihitung.</b> Bakery ini belum punya data sheet Online utk periode terpilih.`);
+  if (npGapAbs!=null && revGapAbs!=null){
+    insights.push(npGapAbs > revGapAbs * 1.5
+      ? `<b>Profit gap lebih besar dari revenue gap.</b> Selisih Laba Bersih ${npGapAbs.toFixed(1)}% menunjukkan gap utamanya di struktur margin/cost (HPP, diskon), bukan di omzet.`
+      : `<b>Profit gap sejalan dgn revenue gap.</b> Selisih Laba Bersih (${npGapAbs.toFixed(1)}%) relatif konsisten dgn selisih omzet, tak ada indikasi anomali struktur cost.`);
+  }
+  insights.push(`<b>Needs Investigation.</b> Cek HPP (Biasa = angka tercatat, Franchise = estimasi 60% dari omzet), diskon, struktur pendapatan channel, serta mapping sebelum menyimpulkan penyebab final.`);
+  const insightHtml = insights.map(t=>`<div class="fa-insight">${t}</div>`).join('');
+  const warnHtml = `<div style="background:linear-gradient(90deg,#2E2015,#1F160D);border:1px solid #6B4A28;color:#E8D9C4;border-radius:10px;padding:9px 12px;font-size:11px;margin-top:4px;">⚠️ Versi Franchise mengandung komponen estimasi (HPP dibatasi 60%, badge EST). Jangan baca perbedaan sbg actual-vs-actual murni tanpa cek sumber tiap komponen.</div>`;
+  const whyCol = `<div class="fa-card" style="min-width:0;"><div class="fa-clabel" style="margin-bottom:8px;">Why the Gap?</div>${insightHtml}${warnHtml}</div>`;
+
+  return cards + `<div class="fa-grid2">${ringkasCol}${whyCol}</div>`;
+}
+
+// Ranking (top-4) dipakai HANYA saat >1 bakery dipilih -- supaya default TIDAK
+// me-render puluhan blok detail sekaligus (poin spek: ranking-first utk
+// multi-selection). Dihitung dari blk.ringkas yg sama persis dgn dipakai
+// blok detail di bawah -- tidak ada jalur hitung baru.
+function cdRankingHtml(selOutlets, selMonths){
+  const blocks = selOutlets.map(k=>({ k, blk: computeCabangDiffBlock(k, selMonths) }));
+  const withNp = blocks.filter(b=>b.blk.ringkas[3].pct!=null);
+  const withGp = blocks.filter(b=>b.blk.ringkas[1].pct!=null);
+  const biggestNp = withNp.length ? withNp.reduce((a,b)=>Math.abs(b.blk.ringkas[3].pct)>Math.abs(a.blk.ringkas[3].pct)?b:a) : null;
+  const biggestGp = withGp.length ? withGp.reduce((a,b)=>Math.abs(b.blk.ringkas[1].pct)>Math.abs(a.blk.ringkas[1].pct)?b:a) : null;
+  const closest = withNp.length ? withNp.reduce((a,b)=>Math.abs(b.blk.ringkas[3].pct)<Math.abs(a.blk.ringkas[3].pct)?b:a) : null;
+  const noData = blocks.filter(b=>!b.blk.rowsFr);
+  const rankItem = (label, item, fmt)=> `<div class="fa-mini"><span>${label}</span><b>${item?`${item.blk.label} · ${fmt(item.blk)}`:'-'}</b></div>`;
+  const items = [
+    rankItem('Biggest Net Profit Gap', biggestNp, b=>Math.abs(b.ringkas[3].pct).toFixed(1)+'%'),
+    rankItem('Biggest GP Gap', biggestGp, b=>Math.abs(b.ringkas[1].pct).toFixed(1)+'%'),
+    rankItem('Closest Match', closest, b=>Math.abs(b.ringkas[3].pct).toFixed(1)+'%'),
+    `<div class="fa-mini"><span>Data Warning</span><b style="color:${noData.length?'#FFC93C':'#4ADE80'};">${noData.length?noData.map(b=>b.blk.label).join(', ')+' · Check':'Semua lengkap'}</b></div>`,
+  ].join('');
+  return faCard('Ranking Saat Banyak Bakery Dipilih', `<div class="fa-mini4">${items}</div><div style="font-size:10.5px;color:#726C9C;margin-top:8px;">Default tidak me-render puluhan blok detail sekaligus -- gunakan Ringkasan Selisih &amp; panel detail per-bakery di bawah utk investigasi lanjutan.</div>`);
+}
+
+// Toggle tampilan Detail Comparison di mobile (Side by Side / Biasa /
+// Franchise) -- murni CSS attribute-toggle (bukan re-render), spy klik tab
+// tidak "lompat" scroll spt full re-render (poin P25 QA review: perf/feel).
+function cdSetDetailTab(btn, tab){
+  const wrap = btn.closest('.cd-detail-tabs-wrap');
+  if (!wrap) return;
+  wrap.querySelectorAll('.cd-dual-grid').forEach(el=> el.dataset.tab = tab);
+  wrap.querySelectorAll('.fa-tab2').forEach(el=> el.classList.remove('active'));
+  btn.classList.add('active');
+}
+
 function renderCabangDiff(){
   cmpEnsure('diff');
   diffEnsure();
@@ -4849,6 +5027,11 @@ function renderCabangDiff(){
 
   const selOutlets = sorted.filter(k=>diffOutlets.has(k));
   const multiMode = diffMethod !== 'both' && selOutlets.length > 1;
+  // Ringkasan bare-table inline per-blok cuma ditampilkan kalau >1 bakery
+  // (perlu ringkasan per-bakery di tiap blok utk dibandingkan) -- utk 1
+  // bakery, Ringkasan Selisih sudah ditampilkan sekali di kartu atas
+  // (cdSummaryAndGapHtml), jadi tak diulang di sini (poin: jangan duplikat KPI).
+  const showInlineRingkasan = selOutlets.length > 1;
 
   // ---- Blok default: tiap bakery dpt ringkasan selisih + dual panel sendiri2 ----
   const blocks = selOutlets.map((k,idx)=>{
@@ -4860,9 +5043,7 @@ function renderCabangDiff(){
         <td class="mono" style="text-align:right;padding:8px 12px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;white-space:nowrap;font-weight:700;color:${r.diff==null?'#4A4568':(r.big?'#FB7185':'#9B93C4')};">${r.diff==null?'–':fmtRp(r.diff)}</td>
         <td class="mono" style="text-align:right;padding:8px 12px;border-bottom:1px solid #2A2650;border-left:1px solid #2A2650;white-space:nowrap;color:${r.diff==null?'#4A4568':(r.big?'#FB7185':'#9B93C4')};">${r.pct==null?'–':(r.big?'⚠ ':'')+r.pct.toFixed(1)+'%'}</td>
       </tr>`).join('');
-    return `<div class="cd-block">
-      <div class="cd-block-title"><span class="n">${idx+1}</span> ${blk.label}</div>
-      <div style="background:#171433;border:1px solid #2A2650;border-radius:12px;padding:16px 18px;margin-bottom:14px;overflow-x:auto;">
+    const inlineRingkasan = showInlineRingkasan ? `<div style="background:#171433;border:1px solid #2A2650;border-radius:12px;padding:16px 18px;margin-bottom:14px;overflow-x:auto;">
         <div style="font-family:'Space Grotesk',sans-serif;font-size:12.5px;font-weight:700;color:#E066FF;margin-bottom:10px;">RINGKASAN SELISIH · ${periodeTxt}</div>
         <table style="width:100%;border-collapse:collapse;min-width:560px;">
           <thead><tr>
@@ -4874,10 +5055,20 @@ function renderCabangDiff(){
           </tr></thead>
           <tbody>${ringkasRows}</tbody>
         </table>
-      </div>
-      <div class="cd-dual-grid">
-        ${cdPanelHtml('PNL CABANG (BIASA)', '#4ADE80', blk.rowsBiasa, 'Struktur buku besar apa adanya. HPP memakai angka tercatat.')}
-        ${cdPanelHtml('VERSI FRANCHISE', '#22D3C5', blk.rowsFr, 'Pendapatan dipecah per kanal. HPP Produk dibatasi 60% (badge EST = estimasi).')}
+      </div>` : '';
+    return `<div class="cd-block">
+      <div class="cd-block-title"><span class="n">${idx+1}</span> ${blk.label}</div>
+      ${inlineRingkasan}
+      <div class="cd-detail-tabs-wrap">
+        <div class="fa-tabs2">
+          <div class="fa-tab2 active" onclick="cdSetDetailTab(this,'side')">Side by Side</div>
+          <div class="fa-tab2" onclick="cdSetDetailTab(this,'biasa')">Biasa</div>
+          <div class="fa-tab2" onclick="cdSetDetailTab(this,'franchise')">Franchise</div>
+        </div>
+        <div class="cd-dual-grid" data-tab="side">
+          ${cdPanelHtml('PNL CABANG (BIASA)', '#4ADE80', blk.rowsBiasa, 'Struktur buku besar apa adanya. HPP memakai angka tercatat.')}
+          ${cdPanelHtml('VERSI FRANCHISE', '#22D3C5', blk.rowsFr, 'Pendapatan dipecah per kanal. HPP Produk dibatasi 60% (badge EST = estimasi).')}
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -4913,7 +5104,28 @@ function renderCabangDiff(){
     bodyHtml = blocks || '<div style="padding:20px;text-align:center;color:#726C9C;font-size:12.5px;">Pilih minimal 1 bakery.</div>';
   }
 
+  // Compact filter summary (mockup: Bakery/Periode/Mode/View sbg 4 sel
+  // ringkas) -- murni ringkasan status, kontrol interaktif penuh (chip
+  // outlet/bulan/metode) tetap ada di bawahnya, tak dihapus/diganti.
+  const filterSummary = `<div class="fa-filters">
+    <div class="fa-filter-cell"><span class="fa-flabel">Bakery</span><div class="fa-filter-val">${selOutlets.length===1?UNIT_DATA[selOutlets[0]].label:selOutlets.length+' dipilih'}</div></div>
+    <div class="fa-filter-cell"><span class="fa-flabel">Periode</span><div class="fa-filter-val">${selMonths.length?periodeTxt:'-'}</div></div>
+    <div class="fa-filter-cell"><span class="fa-flabel">Mode</span><div class="fa-filter-val">Biasa vs Franchise</div></div>
+    <div class="fa-filter-cell"><span class="fa-flabel">View</span><div class="fa-filter-val">${multiMode?(diffMethod==='biasa'?'Metode Biasa (sejajar)':'Metode Franchise (sejajar)'):(selOutlets.length>1?'Ranking + Detail per Bakery':'Ringkasan &amp; Detail')}</div></div>
+  </div>`;
+
+  // Summary cards + Ringkasan Selisih/Why-the-Gap (1 bakery) ATAU Ranking
+  // (>1 bakery) -- "ringkasan gap dulu, detail P&L hanya saat dibutuhkan"
+  // (arah mockup), dihitung dari computeCabangDiffBlock yg sama dgn blocks
+  // di bawah (tak ada jalur angka baru).
+  const topSummary = !selMonths.length ? ''
+    : selOutlets.length === 1 ? cdSummaryAndGapHtml(computeCabangDiffBlock(selOutlets[0], selMonths))
+    : selOutlets.length > 1 ? cdRankingHtml(selOutlets, selMonths)
+    : '';
+
   return `
+    ${filterSummary}
+    ${topSummary}
     <div style="margin-bottom:14px;">
       <div style="font-size:11px;color:#726C9C;font-weight:600;margin-bottom:8px;">PILIH BAKERY (${diffOutlets.size} dipilih, ● = ada data sheet Online)
         <span onclick="diffSelectAll(true)" style="cursor:pointer;color:#9B93C4;text-decoration:underline;font-weight:400;margin-left:8px;">Semua</span>
@@ -4932,6 +5144,178 @@ function renderCabangDiff(){
     ${multiMode ? '' : `<div style="font-size:10.5px;color:#726C9C;margin-bottom:18px;">Tiap bakery tampil sbg blok terpisah (ringkasan + panel Biasa | Franchise sendiri2) -- angkanya <b>tidak digabung/dijumlah</b> antar bakery, krn skala tiap bakery beda2 shg total gabungan tak bermakna. Per bakery, Omset "Biasa" vs "Jumlah Pendapatan" Franchise seharusnya nyaris identik; kalau selisihnya besar, itu tanda masalah data.</div>`}
     ${bodyHtml}`;
 }
+// ===== Grafik redesign: "one question, one main chart" =====
+// Primary Chart (Trend/Ranking/Composition) + Chart Insight, lalu 3 Quick
+// Charts ringkas, BARU di bawahnya Custom Chart Builder + Grafik Cabang +
+// Scatter (lama, tetap penuh, cuma dipindah lebih ke bawah -- poin spek:
+// "Custom Chart Builder deprioritized"). Semua dihitung dari getLineVals/
+// flattenOpexLeaves/categorizeOpexItem yg sudah ada, bukan jalur baru.
+let grafikPrimaryMode = 'trend'; // 'trend' | 'ranking' | 'composition'
+function setGrafikPrimaryMode(m){ grafikPrimaryMode = m; render(); }
+
+function grafikOutletRankingRows(limit){
+  const vIdx = getVisibleIdx();
+  if (!vIdx.length) return [];
+  return OUTLET_KEYS.map(k=>{
+    const u = UNIT_DATA[k];
+    const np = getLineVals(u,'Laba Bersih');
+    if (!np) return null;
+    const total = vIdx.reduce((s,i)=>s+(np[i]||0),0);
+    return { label:u.label, total };
+  }).filter(Boolean).sort((a,b)=>b.total-a.total).slice(0,limit);
+}
+function grafikCompositionRows(limit){
+  const vIdx = getVisibleIdx();
+  const u = UNIT_DATA.konsolidasi;
+  const opexRow = u.waterfall.find(r=>r.name==='Biaya Operasional');
+  if (!opexRow) return [];
+  const leaves = flattenOpexLeaves(opexRow).map(l=>({ name:l.name, total: vIdx.reduce((s,i)=>s+(l.vals[i]||0),0) })).filter(l=>l.total>0);
+  const catTotals = {};
+  leaves.forEach(l=>{ const cat = categorizeOpexItem(l.name); catTotals[cat] = (catTotals[cat]||0) + l.total; });
+  return Object.entries(catTotals).sort((a,b)=>b[1]-a[1]).slice(0,limit).map(([label,total])=>({ label, total }));
+}
+function grafikBarRows(rows, opts={}){
+  if (!rows.length) return `<div style="font-size:11.5px;color:#726C9C;">Belum ada data.</div>`;
+  const vals = rows.map(r=>Math.abs(r.total));
+  const maxV = Math.max(...vals,1);
+  return rows.map(r=>{
+    const w = maxV ? Math.abs(r.total)/maxV*100 : 0;
+    const color = r.total<0 ? '#FB7185' : (opts.color||'#9D83FF');
+    return `<div style="display:grid;grid-template-columns:${opts.labelWidth||'110px'} 1fr 90px;gap:10px;align-items:center;margin:9px 0;font-size:11px;">
+      <span style="color:#C9C3E8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${faEsc(r.label)}">${faEsc(r.label)}</span>
+      <div style="height:8px;background:#29254D;border-radius:999px;overflow:hidden;"><div style="height:100%;width:${w.toFixed(1)}%;background:${color};border-radius:999px;"></div></div>
+      <b class="mono" style="text-align:right;">${faCompactRp(r.total)}</b>
+    </div>`;
+  }).join('');
+}
+
+let grafikPrimaryChartCache = null;
+function drawGrafikPrimaryChart(){
+  if (grafikPrimaryMode!=='trend' || !grafikPrimaryChartCache) return;
+  renderSvgLineChart('grafikPrimaryChart', grafikPrimaryChartCache.datasets, grafikPrimaryChartCache.labels, { dualAxis:false });
+}
+function renderGrafikPrimaryAndInsight(){
+  const vIdx = getVisibleIdx();
+  const u = UNIT_DATA.konsolidasi;
+  const modeBtn = (id,label)=> `<div class="fa-tab2 ${grafikPrimaryMode===id?'active':''}" onclick="setGrafikPrimaryMode('${id}')">${label}</div>`;
+  const tabs = `<div class="fa-tabs2" style="margin-bottom:0;">${modeBtn('trend','Trend')}${modeBtn('ranking','Ranking')}${modeBtn('composition','Composition')}</div>`;
+
+  let chartHtml, insights;
+  if (grafikPrimaryMode==='ranking'){
+    const rows = grafikOutletRankingRows(8);
+    chartHtml = `<div style="padding:10px 2px 2px;">${grafikBarRows(rows, {labelWidth:'130px'})}</div>`;
+    const top = rows[0], bottom = rows[rows.length-1];
+    insights = [
+      `<b>Outlet Net Profit tertinggi:</b> ${top?faEsc(top.label)+' ('+fmtRp(top.total)+')':'-'}.`,
+      `<b>Outlet Net Profit terendah:</b> ${bottom&&bottom!==top?faEsc(bottom.label)+' ('+fmtRp(bottom.total)+')':'-'}.`,
+      `<b>Recommended next view:</b> buka Outlet Performance utk detail klasifikasi &amp; tren per-outlet.`,
+    ];
+  } else if (grafikPrimaryMode==='composition'){
+    const rows = grafikCompositionRows(6);
+    const total = rows.reduce((s,r)=>s+r.total,0);
+    chartHtml = `<div style="padding:10px 2px 2px;">${grafikBarRows(rows, {labelWidth:'130px', color:'#FFC93C'})}</div>`;
+    const top = rows[0];
+    insights = [
+      `<b>Kategori Opex terbesar:</b> ${top?faEsc(top.label)+' ('+(total?((top.total/total)*100).toFixed(0):0)+'% dari total Opex)':'-'}.`,
+      `<b>Total Opex periode terpilih:</b> ${fmtRp(total)}.`,
+      `<b>Recommended next view:</b> buka OPEX Overview utk trend, variance, dan detail per-unit.`,
+    ];
+  } else {
+    const idxList = vIdx.slice(-6);
+    const labels = idxList.map(i=>periodLabel(PERIODS[i],false));
+    const revArr = getLineVals(u,'Pendapatan'), npArr = getLineVals(u,'Laba Bersih');
+    const revSeries = idxList.map(i=>revArr?revArr[i]:null);
+    const npSeries = idxList.map(i=>npArr?npArr[i]:null);
+    grafikPrimaryChartCache = { datasets:[
+      { label:'Revenue', color:'#56A8FF', data:revSeries, isCost:false },
+      { label:'Net Profit', color:'#B9F227', data:npSeries, isCost:false },
+    ], labels };
+    chartHtml = `<div class="chart-box" style="height:220px;margin-bottom:0;"><div id="grafikPrimaryChart" style="width:100%;height:100%;"></div></div>`;
+    const trendRev = faTrendClassify(idxList.map(i=>revArr?revArr[i]:null));
+    const trendNp = faTrendClassify(idxList.map(i=>npArr?npArr[i]:null));
+    insights = [
+      `<b>Revenue: ${trendRev.label}.</b> ${trendRev.detail}`,
+      `<b>Net Profit: ${trendNp.label}.</b> ${trendNp.detail}`,
+      `<b>Recommended next view:</b> buka Cost &amp; Margin (OPEX/HPP) utk melihat driver volatilitas profit.`,
+    ];
+  }
+
+  const primaryCol = `<div class="fa-card" style="min-width:0;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:8px;">
+      <div class="fa-clabel" style="margin-bottom:0;">Primary Chart</div>${tabs}
+    </div>
+    ${chartHtml}
+  </div>`;
+  const insightCol = `<div class="fa-card" style="min-width:0;">
+    <div class="fa-clabel" style="margin-bottom:8px;">Chart Insight</div>
+    ${insights.map(t=>`<div class="fa-insight">${t}</div>`).join('')}
+  </div>`;
+  return `<div class="fa-grid2">${primaryCol}${insightCol}</div>`;
+}
+
+let grafikMarginChartCache = null;
+function drawGrafikQuickCharts(){
+  if (!grafikMarginChartCache) return;
+  renderSvgLineChart('grafikMarginChart', grafikMarginChartCache.datasets, grafikMarginChartCache.labels, { dualAxis:true });
+}
+function renderGrafikQuickCharts(){
+  const rankRows = grafikOutletRankingRows(5);
+  const col1 = `<div class="fa-card" style="min-width:0;">
+    <div class="fa-clabel" style="margin-bottom:8px;">Quick Chart — Outlet Ranking</div>
+    ${grafikBarRows(rankRows,{labelWidth:'92px'})}
+  </div>`;
+
+  const vIdx = getVisibleIdx();
+  const u = UNIT_DATA.konsolidasi;
+  const idxList = vIdx.slice(-6);
+  const labels = idxList.map(i=>periodLabel(PERIODS[i],false));
+  const rev = getLineVals(u,'Pendapatan'), gp = getLineVals(u,'Laba Kotor'), np = getLineVals(u,'Laba Bersih');
+  const gpMarginSeries = idxList.map(i=> (rev&&rev[i]&&gp&&gp[i]!=null) ? gp[i]/rev[i]*100 : null);
+  const npMarginSeries = idxList.map(i=> (rev&&rev[i]&&np&&np[i]!=null) ? np[i]/rev[i]*100 : null);
+  grafikMarginChartCache = { datasets:[
+    { label:'GP Margin', color:'#56A8FF', data:gpMarginSeries, isCost:true },
+    { label:'Net Margin', color:'#B9F227', data:npMarginSeries, isCost:true },
+  ], labels };
+  const col2 = `<div class="fa-card" style="min-width:0;">
+    <div class="fa-clabel" style="margin-bottom:8px;">Quick Chart — Margin</div>
+    <div class="chart-box" style="height:180px;margin-bottom:0;"><div id="grafikMarginChart" style="width:100%;height:100%;"></div></div>
+  </div>`;
+
+  const mixRows = grafikCompositionRows(4);
+  const mixTotal = mixRows.reduce((s,r)=>s+r.total,0);
+  const col3 = `<div class="fa-card" style="min-width:0;">
+    <div class="fa-clabel" style="margin-bottom:8px;">Quick Chart — Expense Mix</div>
+    ${mixRows.length ? mixRows.map(r=>{
+      const pct = mixTotal? (r.total/mixTotal*100):0;
+      return `<div style="display:grid;grid-template-columns:90px 1fr 46px;gap:8px;align-items:center;margin:8px 0;font-size:10.5px;">
+        <span style="color:#C9C3E8;">${faEsc(r.label)}</span>
+        <div style="height:7px;background:#29254D;border-radius:999px;overflow:hidden;"><div style="height:100%;width:${pct.toFixed(1)}%;background:#FFC93C;border-radius:999px;"></div></div>
+        <b class="mono" style="text-align:right;">${pct.toFixed(0)}%</b>
+      </div>`;
+    }).join('') : '<div style="font-size:11.5px;color:#726C9C;">Belum ada data.</div>'}
+  </div>`;
+  return `<div class="fa-grid3">${col1}${col2}${col3}</div>`;
+}
+
+function renderGrafikOverview(){
+  const legacyBody = renderGrafikCustom() + renderGrafikCabang() + renderGrafikCabangFranchise() + renderGrafikScatter();
+  return renderGrafikPrimaryAndInsight()
+    + renderGrafikQuickCharts()
+    + `<div style="margin-top:26px;padding-top:20px;border-top:1px solid #2A2650;">
+        <div style="font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:800;color:#F5F3FF;margin-bottom:4px;">Custom Chart Builder &amp; Advanced Views</div>
+        <div style="font-size:11px;color:#726C9C;margin-bottom:16px;">Analisis lanjutan (multi-metrik, multi-segmen, sanding Cabang, sebaran outlet) tetap tersedia penuh di bawah ini.</div>
+        ${legacyBody}
+      </div>`;
+}
+function drawGrafikOverviewCharts(){
+  drawGrafikPrimaryChart();
+  drawGrafikQuickCharts();
+  drawGrafikCustomChart();
+  drawGrafikCabangChart();
+  drawGrafikCabangFranchiseChart();
+  drawGrafikScatterChart();
+}
+
 function renderGrafikCustom(){
   grafikRangeDefaults();
   const chartOk = typeof Chart !== 'undefined';
@@ -5792,6 +6176,239 @@ function renderBucketPicker(unitKey, mode, accentColor){
   </div>`;
   return { html, indices: cur.indices, label: bucketLabel(mode, cur.key, cur.indices, cur.complete), complete: cur.complete };
 }
+// ===== OPEX Overview (redesign) =====
+// Landing page baru utk grup sidebar "Opex" -- konsolidasi 6-KPI, trend +
+// readout, Pareto + Top Variance, OPEX-by-Unit, semuanya dihitung ULANG dari
+// fungsi Opex yg sudah ada & tervalidasi (flattenOpexLeaves/categorizeOpexItem/
+// countOpexAnomalies/FA_CONFIG) -- BUKAN jalur angka baru. 4 halaman detail
+// (Tren/Pareto/Efisiensi/Lonjakan/Leverage) TETAP ada penuh, tak dihapus --
+// overview ini cuma landing ringkas dgn link turun ke detail.
+function renderOpexOverviewCards(){
+  const vIdx = getVisibleIdx();
+  const u = UNIT_DATA.konsolidasi;
+  const opexRow = u.waterfall.find(r=>r.name==='Biaya Operasional');
+  const rev = getLineVals(u,'Pendapatan');
+  if (!vIdx.length || !opexRow || !rev) return { html:'', anomaly:{count:0,items:[]}, lastIdx:null, prevIdx:null };
+  const sumIdx = (arr, idxs)=> idxs.reduce((s,i)=> s+(arr[i]||0), 0);
+  const totalOpex = sumIdx(opexRow.values, vIdx);
+  const totalRev = sumIdx(rev, vIdx);
+  const ratio = totalRev ? totalOpex/totalRev*100 : null;
+
+  const lastIdx = vIdx[vIdx.length-1], prevIdx = vIdx.length>1 ? vIdx[vIdx.length-2] : null;
+  const changeAbs = (prevIdx!=null && opexRow.values[lastIdx]!=null && opexRow.values[prevIdx]!=null) ? opexRow.values[lastIdx]-opexRow.values[prevIdx] : null;
+
+  const anomaly = countOpexAnomalies();
+  const largest = anomaly.items[0] || null;
+
+  // Efficiency Gain: item biaya TURUN paling besar (bukan cuma item yg lonjak
+  // naik) antara prevIdx & lastIdx -- ambang sama dgn Deteksi Lonjakan (Rp2jt)
+  // spy konsisten dgn definisi "signifikan" yg sudah dipakai di modul itu.
+  let efficiencyGain = null;
+  if (prevIdx!=null){
+    flattenOpexLeaves(opexRow).forEach(l=>{
+      const v0=l.vals[prevIdx], v1=l.vals[lastIdx];
+      if (v0==null||v1==null) return;
+      const delta = v1-v0;
+      if (delta <= -2000000 && (!efficiencyGain || delta<efficiencyGain.delta)) efficiencyGain = { name:l.name, delta };
+    });
+  }
+
+  const html = `<div class="fa-cards6">
+    <div class="fa-card" title="${faEsc(fmtRp(totalOpex))}"><div class="fa-clabel">Total OPEX</div><div class="fa-cval">${faCompactRp(totalOpex)}</div><div class="fa-cdelta" style="color:#726C9C;">${ratio!=null?ratio.toFixed(1)+'% Revenue':'-'}</div></div>
+    <div class="fa-card"><div class="fa-clabel">OPEX Ratio</div><div class="fa-cval">${ratio!=null?ratio.toFixed(1)+'%':'-'}</div><div class="fa-cdelta" style="color:#726C9C;">thd Revenue periode terpilih</div></div>
+    <div class="fa-card" title="${changeAbs==null?'':faEsc(fmtRp(changeAbs))}"><div class="fa-clabel">Change vs Periode Lalu</div><div class="fa-cval" style="color:${changeAbs==null?'#F5F3FF':(changeAbs>0?'#FB7185':'#4ADE80')}">${changeAbs==null?'-':(changeAbs>=0?'+':'')+faCompactRp(changeAbs)}</div><div class="fa-cdelta" style="color:#726C9C;">${changeAbs==null?'-':(changeAbs>0?'Expense increase':'Expense decrease')}</div></div>
+    <div class="fa-card"><div class="fa-clabel">Critical Items</div><div class="fa-cval" style="color:${anomaly.count>0?'#FB7185':'#4ADE80'}">${anomaly.count}</div><div class="fa-cdelta" style="color:#726C9C;">Lonjakan ≥50% &amp; ≥Rp2jt</div></div>
+    <div class="fa-card" title="${largest?faEsc(fmtRp(Math.abs(largest.deltaAbs))):''}"><div class="fa-clabel">Largest Impact</div><div class="fa-cval">${largest?faCompactRp(Math.abs(largest.deltaAbs)):'-'}</div><div class="fa-cdelta" style="color:#FB7185;">${largest?faEsc(largest.name):'-'}</div></div>
+    <div class="fa-card" title="${efficiencyGain?faEsc(fmtRp(Math.abs(efficiencyGain.delta))):''}"><div class="fa-clabel">Efficiency Gain</div><div class="fa-cval" style="color:#4ADE80;">${efficiencyGain?faCompactRp(Math.abs(efficiencyGain.delta)):'-'}</div><div class="fa-cdelta" style="color:#726C9C;">${efficiencyGain?faEsc(efficiencyGain.name):'Tidak ada penurunan signifikan'}</div></div>
+  </div>`;
+  return { html, totalOpex, totalRev, ratio, changeAbs, anomaly, largest, efficiencyGain, lastIdx, prevIdx };
+}
+
+let opexOverviewTrendCache = null;
+function drawOpexOverviewChart(){
+  if (!opexOverviewTrendCache) return;
+  renderSvgLineChart('opexOverviewTrendChart', opexOverviewTrendCache.datasets, opexOverviewTrendCache.labels, { dualAxis:false });
+}
+function renderOpexOverviewTrendReadout(cardsCtx){
+  const vIdx = getVisibleIdx();
+  const u = UNIT_DATA.konsolidasi;
+  const opexRow = u.waterfall.find(r=>r.name==='Biaya Operasional');
+  const rev = getLineVals(u,'Pendapatan');
+  const idxList = vIdx.slice(-6);
+  const labels = idxList.map(i=>periodLabel(PERIODS[i],false));
+  const opexSeries = idxList.map(i=>opexRow.values[i]);
+  // 3M moving average -- pakai faMovingAvgSeries yg sama dipakai tab Trend
+  // Financial Analysis (financial-analysis.js sudah dimuat saat fungsi ini
+  // JALAN, krn cuma dipanggil dari render() setelah semua script termuat).
+  const fullOpex = PERIODS.map((_,i)=>opexRow.values[i]);
+  const ma3Full = faMovingAvgSeries(fullOpex, 3);
+  const ma3Series = idxList.map(i=>ma3Full[i]);
+  opexOverviewTrendCache = { datasets:[
+    { label:'OPEX', color:'#56A8FF', data:opexSeries, isCost:false },
+    { label:'3M Average', color:'#B9F227', data:ma3Series, isCost:false },
+  ], labels };
+
+  const chartCol = `<div class="fa-card" style="min-width:0;">
+    <div class="fa-clabel" style="margin-bottom:10px;">OPEX Trend — ${idxList.length} Bulan Terakhir</div>
+    <div class="chart-box" style="height:220px;"><div id="opexOverviewTrendChart" style="width:100%;height:100%;"></div></div>
+  </div>`;
+
+  // Management Readout -- 3 insight dinamis dari angka yg sudah dihitung
+  // (bukan teks statis mockup): ratio vs baseline 3-bulan sendiri (metodologi
+  // sama dgn dipakai faOutletPerformance utk deteksi deviasi outlet), daftar
+  // account yg lonjak (dari countOpexAnomalies -- validated), dan reminder umum.
+  const idx3 = (cardsCtx.lastIdx!=null) ? faHistoricalIdxList(cardsCtx.lastIdx-1>=0?cardsCtx.lastIdx-1:0,3).filter(i=>i<cardsCtx.lastIdx) : [];
+  const rAvg3 = faAvg(rev, idx3), oAvg3 = faAvg(fullOpex, idx3);
+  const ratioAvg3 = (rAvg3 && oAvg3!=null) ? oAvg3/rAvg3*100 : null;
+  const insights = [];
+  if (cardsCtx.ratio!=null){
+    insights.push(ratioAvg3!=null
+      ? `<b>OPEX ratio ${cardsCtx.ratio<=ratioAvg3?'terjaga':'naik'}.</b> ${cardsCtx.ratio.toFixed(1)}% dari Revenue, dibanding rata-rata 3 bulan terakhir ${ratioAvg3.toFixed(1)}%.`
+      : `<b>OPEX ratio saat ini ${cardsCtx.ratio.toFixed(1)}%</b> dari Revenue.`);
+  }
+  if (cardsCtx.anomaly.count){
+    const names = cardsCtx.anomaly.items.slice(0,2).map(i=>i.name).join(' dan ');
+    insights.push(`<b>${cardsCtx.anomaly.count} account melonjak.</b> ${names} adalah tekanan terbesar bulan ini.`);
+  } else {
+    insights.push(`<b>Tidak ada lonjakan material.</b> Semua account biaya bergerak dalam pola normal periode ini.`);
+  }
+  insights.push(`<b>Jangan potong semua biaya secara merata.</b> Prioritaskan account dengan financial impact material dan lonjakan berulang (lihat Deteksi Lonjakan untuk riwayat per-item).`);
+  const insightCol = `<div class="fa-card" style="min-width:0;">
+    <div class="fa-clabel" style="margin-bottom:10px;">Management Readout</div>
+    ${insights.map(t=>`<div class="fa-insight">${t}</div>`).join('')}
+  </div>`;
+  return `<div class="fa-grid2">${chartCol}${insightCol}</div>`;
+}
+
+function renderOpexOverviewParetoVariance(cardsCtx){
+  const vIdx = getVisibleIdx();
+  const u = UNIT_DATA.konsolidasi;
+  const opexRow = u.waterfall.find(r=>r.name==='Biaya Operasional');
+  const leaves = flattenOpexLeaves(opexRow).map(l=>({ name:l.name, total: vIdx.reduce((s,i)=>s+(l.vals[i]||0),0) })).filter(l=>l.total>0);
+  const catTotals = {};
+  leaves.forEach(l=>{ const cat = categorizeOpexItem(l.name); catTotals[cat] = (catTotals[cat]||0) + l.total; });
+  const catRows = Object.entries(catTotals).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const maxCat = catRows.length ? catRows[0][1] : 1;
+  const paretoBars = catRows.map(([name,total])=>{
+    const w = maxCat ? (total/maxCat*100) : 0;
+    return `<div style="display:grid;grid-template-columns:110px 1fr 90px;gap:10px;align-items:center;margin:9px 0;font-size:11px;">
+      <span style="color:#C9C3E8;">${faEsc(name)}</span>
+      <div style="height:8px;background:#29254D;border-radius:999px;overflow:hidden;"><div style="height:100%;width:${w.toFixed(1)}%;background:#9D83FF;border-radius:999px;"></div></div>
+      <b class="mono" style="text-align:right;">${faCompactRp(total)}</b>
+    </div>`;
+  }).join('');
+  const paretoCol = `<div class="fa-card" style="min-width:0;">
+    <div class="fa-clabel" style="margin-bottom:8px;">OPEX Pareto — Kategori Terbesar</div>
+    ${paretoBars || '<div style="font-size:11.5px;color:#726C9C;">Belum ada data.</div>'}
+    <a href="#" onclick="event.preventDefault();navigateTo('opexPareto');" style="font-size:10.5px;color:#4FC3F7;display:inline-block;margin-top:6px;">Full Pareto (per item/kategori/divisi) →</a>
+  </div>`;
+
+  // Top Variance -- BEDA dgn Pareto (bukan biaya terbesar, tapi PERUBAHAN
+  // paling material), materiality-respecting: pakai FA_CONFIG yg sama dgn
+  // Financial Analysis (Rp10jt ATAU 1% Revenue Group), bukan ambang baru.
+  let varianceHtml;
+  if (cardsCtx.prevIdx==null){
+    varianceHtml = `<div style="font-size:11.5px;color:#726C9C;">Pilih minimal 2 bulan utk melihat variance.</div>`;
+  } else {
+    const anomalySet = new Set(cardsCtx.anomaly.items.map(i=>i.name));
+    const revLast = cardsCtx.totalRev; // pakai total revenue periode terpilih sbg basis % materiality (konsisten dgn FA_CONFIG.materiality_percent_of_revenue thd Revenue Group)
+    const variances = flattenOpexLeaves(opexRow).map(l=>{
+      const v0=l.vals[cardsCtx.prevIdx], v1=l.vals[cardsCtx.lastIdx];
+      if (v0==null||v1==null) return null;
+      const deltaAbs = v1-v0;
+      const deltaPct = v0!==0 ? (deltaAbs/Math.abs(v0)*100) : null;
+      return { name:l.name, deltaAbs, deltaPct };
+    }).filter(Boolean).filter(v=> Math.abs(v.deltaAbs) >= FA_CONFIG.minimum_materiality_amount || (revLast && Math.abs(v.deltaAbs)/revLast*100 >= FA_CONFIG.materiality_percent_of_revenue));
+    variances.sort((a,b)=>Math.abs(b.deltaAbs)-Math.abs(a.deltaAbs));
+    const top = variances.slice(0,6);
+    const rows = top.length ? top.map(v=>{
+      const isIncrease = v.deltaAbs > 0;
+      const status = !isIncrease ? 'GOOD' : (anomalySet.has(v.name) ? 'CRITICAL' : 'WATCH');
+      const color = status==='GOOD' ? '#4ADE80' : status==='WATCH' ? '#FFC93C' : '#FB7185';
+      return `<tr>
+        <td style="padding:7px 10px;font-size:11px;">${faEsc(v.name)}</td>
+        <td class="mono" style="padding:7px 10px;text-align:right;font-size:10.5px;color:${color};">${v.deltaPct==null?'-':(v.deltaPct>=0?'+':'')+v.deltaPct.toFixed(0)+'%'}</td>
+        <td class="mono" style="padding:7px 10px;text-align:right;font-size:10.5px;color:${color};">${v.deltaAbs>=0?'−':'+'}${faCompactRp(Math.abs(v.deltaAbs))}</td>
+        <td style="padding:7px 10px;text-align:center;"><span style="background:${color}22;color:${color};border:1px solid ${color};border-radius:8px;padding:2px 7px;font-size:9px;font-weight:700;">${status}</span></td>
+      </tr>`;
+    }).join('') : `<tr><td colspan="4" style="padding:14px;text-align:center;color:#726C9C;font-size:11.5px;">Tidak ada variance material (≥Rp${(FA_CONFIG.minimum_materiality_amount/1e6).toFixed(0)}jt atau ≥${FA_CONFIG.materiality_percent_of_revenue}% Revenue).</td></tr>`;
+    varianceHtml = `<div class="tbl-wrap"><table>
+      <thead><tr><th style="text-align:left;padding:6px 10px;font-size:10px;">Account</th><th style="padding:6px 10px;font-size:10px;">Variance</th><th style="padding:6px 10px;font-size:10px;">Impact</th><th style="padding:6px 10px;font-size:10px;">Status</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+  }
+  const varianceCol = `<div class="fa-card" style="min-width:0;">
+    <div class="fa-clabel" style="margin-bottom:8px;">Top Variance</div>
+    ${varianceHtml}
+    <div style="font-size:10px;color:#726C9C;margin-top:8px;">Bukan biaya terbesar, tapi perubahan paling material dibanding periode sebelumnya (ambang sama dgn Financial Analysis: ≥Rp${(FA_CONFIG.minimum_materiality_amount/1e6).toFixed(0)}jt atau ≥${FA_CONFIG.materiality_percent_of_revenue}% Revenue).</div>
+  </div>`;
+  return `<div class="fa-grid2">${paretoCol}${varianceCol}</div>`;
+}
+
+function renderOpexOverviewByUnit(cardsCtx){
+  const vIdx = getVisibleIdx();
+  if (!vIdx.length) return faCard('OPEX by Outlet / Unit', `<div style="font-size:11.5px;color:#726C9C;">Belum ada periode.</div>`);
+  const { lastIdx, prevIdx, anomaly } = cardsCtx;
+  const anomalySet = new Set(anomaly.items.map(i=>i.name));
+  const rows = OUTLET_KEYS.map(k=>{
+    const u = UNIT_DATA[k];
+    const rev = getLineVals(u,'Pendapatan');
+    const opexRow = u.waterfall.find(r=>r.name==='Biaya Operasional');
+    if (!rev || !opexRow) return null;
+    const revTot = vIdx.reduce((s,i)=>s+(rev[i]||0),0);
+    const opexTot = vIdx.reduce((s,i)=>s+(opexRow.values[i]||0),0);
+    if (!revTot) return null;
+    const ratio = opexTot/revTot*100;
+    let vsAvg3 = null;
+    if (lastIdx!=null){
+      const idx3 = faHistoricalIdxList(lastIdx-1>=0?lastIdx-1:0,3).filter(i=>i<lastIdx);
+      const rAvg3 = faAvg(rev, idx3), oAvg3 = faAvg(opexRow.values, idx3);
+      const ratioAvg3 = (rAvg3 && oAvg3!=null) ? oAvg3/rAvg3*100 : null;
+      const ratioLast = (rev[lastIdx] && opexRow.values[lastIdx]!=null) ? opexRow.values[lastIdx]/rev[lastIdx]*100 : null;
+      vsAvg3 = (ratioLast!=null && ratioAvg3!=null) ? ratioLast-ratioAvg3 : null;
+    }
+    let driver = null;
+    if (prevIdx!=null){
+      flattenOpexLeaves(opexRow).forEach(l=>{
+        const v0=l.vals[prevIdx], v1=l.vals[lastIdx];
+        if (v0==null||v1==null) return;
+        const delta=v1-v0;
+        if (!driver || Math.abs(delta)>Math.abs(driver.delta)) driver = { name:l.name, delta };
+      });
+    }
+    // Status: CRITICAL kalau driver terbesar outlet ini SAMA dgn item yg sudah
+    // divalidasi anomaly engine (countOpexAnomalies); WATCH kalau ratio-nya
+    // memburuk lebih dari FA_CONFIG.gross_margin_drop_threshold (metodologi
+    // sama dgn dipakai faOutletPerformance utk deteksi deviasi thd 3mo avg).
+    const status = (driver && anomalySet.has(driver.name)) ? 'CRITICAL' : (vsAvg3!=null && vsAvg3>FA_CONFIG.gross_margin_drop_threshold ? 'WATCH' : 'NORMAL');
+    return { key:k, label:u.label, opexTot, ratio, vsAvg3, driver, status };
+  }).filter(Boolean).sort((a,b)=>b.opexTot-a.opexTot).slice(0,8);
+
+  const statusColor = s=> s==='CRITICAL'?'#FB7185':s==='WATCH'?'#FFC93C':'#4ADE80';
+  const rowsHtml = rows.map(r=>`<tr>
+      <td style="padding:8px 10px;font-size:11.5px;">${faEsc(r.label)}</td>
+      <td class="mono" style="padding:8px 10px;text-align:right;font-size:11px;">${fmtRp(r.opexTot)}</td>
+      <td class="mono" style="padding:8px 10px;text-align:right;font-size:11px;">${r.ratio.toFixed(1)}%</td>
+      <td class="mono" style="padding:8px 10px;text-align:right;font-size:11px;color:${r.vsAvg3==null?'#726C9C':(r.vsAvg3>0?'#FB7185':'#4ADE80')};">${r.vsAvg3==null?'-':(r.vsAvg3>=0?'+':'')+r.vsAvg3.toFixed(1)+'pp'}</td>
+      <td style="padding:8px 10px;font-size:11px;color:#9B93C4;">${r.driver?faEsc(r.driver.name):'-'}</td>
+      <td class="mono" style="padding:8px 10px;text-align:right;font-size:11px;color:${r.driver?(r.driver.delta>=0?'#FB7185':'#4ADE80'):'#726C9C'};">${r.driver?(r.driver.delta>=0?'−':'+')+faCompactRp(Math.abs(r.driver.delta)):'-'}</td>
+      <td style="padding:8px 10px;text-align:center;"><span style="background:${statusColor(r.status)}22;color:${statusColor(r.status)};border:1px solid ${statusColor(r.status)};border-radius:8px;padding:2px 7px;font-size:9px;font-weight:700;">${r.status}</span></td>
+    </tr>`).join('');
+  const table = `<div class="tbl-wrap"><table>
+    <thead><tr><th style="text-align:left;padding:7px 10px;font-size:10px;">Unit</th><th style="padding:7px 10px;font-size:10px;">OPEX</th><th style="padding:7px 10px;font-size:10px;">OPEX %</th><th style="padding:7px 10px;font-size:10px;">vs 3M Avg</th><th style="text-align:left;padding:7px 10px;font-size:10px;">Largest Driver</th><th style="padding:7px 10px;font-size:10px;">Impact</th><th style="padding:7px 10px;font-size:10px;">Status</th></tr></thead>
+    <tbody>${rowsHtml || `<tr><td colspan="7" style="padding:16px;text-align:center;color:#726C9C;font-size:12px;">Belum ada outlet dgn data.</td></tr>`}</tbody></table></div>
+    <a href="#" onclick="event.preventDefault();navigateTo('opexOutlet');" style="font-size:10.5px;color:#4FC3F7;display:inline-block;margin-top:8px;">Lihat semua outlet + rincian item →</a>`;
+  return faCard('OPEX by Outlet / Unit', table);
+}
+
+function renderOpexOverview(){
+  const cardsCtx = renderOpexOverviewCards();
+  if (!cardsCtx.html) return opexModuleWrap('OPEX Overview', '', `<div style="color:#726C9C;font-size:12.5px;">Belum ada periode dipilih.</div>`);
+  return cardsCtx.html
+    + renderOpexOverviewTrendReadout(cardsCtx)
+    + renderOpexOverviewParetoVariance(cardsCtx)
+    + renderOpexOverviewByUnit(cardsCtx);
+}
+
 function renderOpexModule(key, mode){
   mode = mode || 'bulanan';
   if (key==='opexTrend') return renderOpexTrend(mode);
@@ -6024,7 +6641,7 @@ function renderHomePage(){
     pnlUtama:  { color:'#FFC93C', desc:'Konsolidasi, Ownership, Split Online/Offline', svg:`<path d="M3 8l9-5 9 5-9 5-9-5z"/><path d="M3 12l9 5 9-5"/><path d="M3 16l9 5 9-5"/>`, target:'konsolidasi' },
     pnlUnit:   { color:'#A78BFA', desc:'Store & Brand, Manufaktur, Head Office, Franchise', svg:`<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>`, target:'store' },
     pnlCabang: { color:'#4ADE80', desc:'Sanding P&L Biasa vs Franchise, multi-bakery', svg:`<path d="M12 21s-7-6.5-7-11.5A7 7 0 0 1 19 9.5C19 14.5 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.3"/>`, target:'cabangDiff' },
-    opex:      { color:'#FB7185', desc:'Tren, Pareto, Efisiensi, Lonjakan, Leverage', svg:`<path d="M12 2s-5 5.5-5 10a5 5 0 0 0 10 0c0-1.5-.7-2.8-1.5-4 .1 1.5-.6 2.5-1.6 2.5.6-3-1-6.5-1.9-8.5z"/>`, target:'opexTrend' },
+    opex:      { color:'#FB7185', desc:'Overview, Tren, Pareto, Efisiensi, Lonjakan, Leverage', svg:`<path d="M12 2s-5 5.5-5 10a5 5 0 0 0 10 0c0-1.5-.7-2.8-1.5-4 .1 1.5-.6 2.5-1.6 2.5.6-3-1-6.5-1.9-8.5z"/>`, target:'opexOverview' },
     hpp:       { color:'#F4A6D0', desc:'Ringkasan, tren & deteksi lonjakan akun HPP Bahan Baku', svg:`<path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/>`, target:'hppRingkasan' },
     kebocoran: { color:'#F97316', desc:'Diskon & komisi -- analisis kebocoran pendapatan', svg:`<path d="M12 3s5 6 5 10a5 5 0 0 1-10 0c0-1.2.4-2.4 1-3.5"/><path d="M4 20l16-16"/>`, target:'leakRingkas' },
     grafik:    { color:'#E066FF', desc:'Grafik custom -- pilih metrik & rentang', svg:`<path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/>`, target:'grafikCustom' },
@@ -6612,12 +7229,9 @@ function renderInner(){
     document.getElementById('analysisTabs').innerHTML = '';
     document.getElementById('bannerArea').innerHTML = '';
     document.getElementById('monthFilterBar').innerHTML = '';
-    document.getElementById('secTitle').textContent = 'Grafik Custom';
-    content.innerHTML = renderGrafikCustom() + renderGrafikCabang() + renderGrafikCabangFranchise() + renderGrafikScatter();
-    drawGrafikCustomChart();
-    drawGrafikCabangChart();
-    drawGrafikCabangFranchiseChart();
-    drawGrafikScatterChart();
+    document.getElementById('secTitle').textContent = 'Grafik';
+    content.innerHTML = renderGrafikOverview();
+    drawGrafikOverviewCharts();
     return;
   }
 
@@ -6627,6 +7241,16 @@ function renderInner(){
     document.getElementById('monthFilterBar').innerHTML = '';
     document.getElementById('secTitle').textContent = 'Bank';
     content.innerHTML = `<div style="padding:40px 20px;text-align:center;color:#726C9C;font-size:13px;">Menu Bank sengaja dikosongkan dulu sesuai arahan Anda. Belum ada tampilan di sini.</div>`;
+    return;
+  }
+
+  if (state.unit === 'opexOverview') {
+    document.getElementById('analysisTabs').innerHTML = '';
+    document.getElementById('bannerArea').innerHTML = '';
+    document.getElementById('secTitle').textContent = UNIT_DATA[state.unit].label;
+    renderMonthFilterBar();
+    content.innerHTML = renderOpexAnomalyNotice(state.unit) + renderOpexOverview();
+    drawOpexOverviewChart();
     return;
   }
 

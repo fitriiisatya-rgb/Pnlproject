@@ -72,6 +72,16 @@ function faAvg(vals, idxs){
   if (!nums.length) return null;
   return nums.reduce((s,v)=>s+v,0)/nums.length;
 }
+// Sum P&L flow items (Revenue/COGS/OPEX/dst) across bbrp periode -- SAH scr
+// akuntansi krn baris2 ini bersifat aditif antar bulan (beda dgn rasio/%,
+// yg harus diturunkan dari hasil sum, bukan di-sum langsung). Dipakai Period
+// Filter multi-bulan/quarter/YTD/tahun.
+function faSum(vals, idxs){
+  if (!vals || !idxs || !idxs.length) return null;
+  const nums = idxs.map(i=>vals[i]).filter(v=>v!=null);
+  if (!nums.length) return null;
+  return nums.reduce((s,v)=>s+v,0);
+}
 
 function faHppRowName(unitKey){ return HPP_ROW_NAME_BY_SEGMENT[unitKey] || 'HPP'; }
 
@@ -85,8 +95,8 @@ function faInfo(text){
 // bulan terakhir di PERIODS = "bulan berjalan" dashboard ini. OPEN kalau
 // bulan-tahunnya sama dgn jam sistem browser SEKARANG; kalau tidak, berarti
 // bulan itu sudah lewat -> CLOSED (tampilkan sbg Actual, jangan diproyeksi).
-function faPeriodMeta(){
-  const idx = PERIODS.length - 1;
+function faPeriodMeta(refIdx){
+  const idx = (refIdx!=null) ? refIdx : PERIODS.length - 1;
   const periodKey = PERIODS[idx];
   const [y, m] = periodKey.split('-').map(Number);
   const now = new Date();
@@ -102,25 +112,141 @@ function faHistoricalIdxList(curIdx, months){
   return list;
 }
 
-// Hanya tampilkan opsi comparison yang datanya benar-benar ada. Budget tidak
-// pernah dimasukkan -- source data (Google Sheet) belum punya kolom Budget.
-function faComparisonOptions(curIdx){
+/* ============================================================================
+   PERIOD FILTER (global) -- generalisasi dari "1 bulan terakhir" (perilaku
+   asli) ke RANGE bulan (multi-bulan/Quarter/YTD/Full Year/Custom). Prinsip
+   keamanan: fungsi kalkulasi 1-bulan (faKPISet dkk) TIDAK diubah cara
+   hitungnya -- hanya diberi kemampuan BARU menerima array index (lihat
+   faKPISet/faSum di atas). Bagian yg secara semantik memang 1-titik-waktu
+   (Profit Drivers, Anomaly, Outlet classification, Forecast) TETAP memakai
+   SATU bulan referensi = bulan TERAKHIR dari range terpilih -- bukan
+   di-generalisasi paksa ke range, supaya maknanya tidak jadi ambigu/salah.
+   Default (belum pilih apa2) = 1 bulan terakhir, IDENTIK dgn perilaku lama.
+   ========================================================================= */
+let faSelectedIndices = null; // null = default (1 bulan terakhir)
+let faSelectedLabel = null;
+let faPeriodPickerOpen = false;
+let faPeriodDraft = null; // Set<index> -- draft selama picker terbuka, di-commit oleh faApplyPeriod
+
+function faDefaultIndices(){ return [PERIODS.length-1]; }
+function faCurrentIndices(){ return (faSelectedIndices && faSelectedIndices.length) ? faSelectedIndices : faDefaultIndices(); }
+
+function faPeriodRangeLabel(indices){
+  if (!indices || !indices.length) return '-';
+  const sorted = [...indices].sort((a,b)=>a-b);
+  if (sorted.length === 1) return periodLabel(PERIODS[sorted[0]], true);
+  const yFirst = PERIODS[sorted[0]].slice(0,4), yLast = PERIODS[sorted[sorted.length-1]].slice(0,4);
+  const first = periodLabel(PERIODS[sorted[0]], yFirst!==yLast);
+  const last = periodLabel(PERIODS[sorted[sorted.length-1]], true);
+  return `${first}–${last}`;
+}
+function faPeriodBadgeLabel(){
+  if (faSelectedLabel) return faSelectedLabel;
+  return faPeriodRangeLabel(faCurrentIndices());
+}
+
+function faPeriodPresets(){
+  const lastIdx = PERIODS.length-1;
+  const presets = [];
+  presets.push({ key:'current', label:'Current Month', indices:[lastIdx] });
+  if (lastIdx-1>=0) presets.push({ key:'prevMonth', label:'Previous Month', indices:[lastIdx-1] });
+  if (lastIdx-2>=0) presets.push({ key:'last3', label:'Last 3 Months', indices: faHistoricalIdxList(lastIdx,3) });
+  if (lastIdx-5>=0) presets.push({ key:'last6', label:'Last 6 Months', indices: faHistoricalIdxList(lastIdx,6) });
+  const lastY = PERIODS[lastIdx].slice(0,4);
+  const ytdIdx = PERIODS.map((p,i)=>({p,i})).filter(o=>o.p.startsWith(lastY+'-') && o.i<=lastIdx).map(o=>o.i);
+  if (ytdIdx.length>1) presets.push({ key:'ytd', label:`YTD ${lastY}`, indices: ytdIdx });
+  for (let q=1; q<=4; q++){
+    const qMonths = [3*(q-1)+1, 3*(q-1)+2, 3*q];
+    const qIdx = PERIODS.map((p,i)=>({p,i})).filter(o=>{ const [yy,mm]=o.p.split('-').map(Number); return String(yy)===lastY && qMonths.includes(mm); }).map(o=>o.i);
+    if (qIdx.length) presets.push({ key:`q${q}`, label:`Q${q} ${lastY}`, indices: qIdx });
+  }
+  const years = [...new Set(PERIODS.map(p=>p.slice(0,4)))];
+  years.forEach(y=>{
+    const yIdx = PERIODS.map((p,i)=>i).filter(i=>PERIODS[i].startsWith(y+'-'));
+    if (yIdx.length>1) presets.push({ key:`year${y}`, label:`Full Year ${y}`, indices: yIdx });
+  });
+  return presets;
+}
+
+function faApplyPeriod(indices, label){
+  if (!indices || !indices.length) return;
+  faSelectedIndices = [...indices].sort((a,b)=>a-b);
+  faSelectedLabel = label || null;
+  faCompareMode = null; // opsi comparison tergantung range baru -- reset ke default yg valid
+  faPeriodPickerOpen = false;
+  renderFinancialAnalysis();
+}
+function faSetPeriodPreset(key){
+  const preset = faPeriodPresets().find(p=>p.key===key);
+  if (preset) faApplyPeriod(preset.indices, preset.label);
+}
+function faResetPeriod(){ faSelectedIndices = null; faSelectedLabel = null; faCompareMode = null; faPeriodPickerOpen = false; renderFinancialAnalysis(); }
+function faTogglePeriodPicker(){
+  faPeriodPickerOpen = !faPeriodPickerOpen;
+  if (faPeriodPickerOpen) faPeriodDraft = new Set(faCurrentIndices());
+  renderFinancialAnalysis();
+}
+function faToggleDraftMonth(idx){
+  if (!faPeriodDraft) faPeriodDraft = new Set(faCurrentIndices());
+  faPeriodDraft.has(idx) ? faPeriodDraft.delete(idx) : faPeriodDraft.add(idx);
+  renderFinancialAnalysisPickerOnly();
+}
+function faApplyDraft(){
+  if (faPeriodDraft && faPeriodDraft.size) faApplyPeriod([...faPeriodDraft], null);
+  else faPeriodPickerOpen = false, renderFinancialAnalysis();
+}
+// Re-render HANYA panel picker (bukan seluruh halaman) supaya klik bulan di
+// custom multiselect tidak terasa "lompat" krn seluruh konten di-render ulang.
+function renderFinancialAnalysisPickerOnly(){
+  const el = document.getElementById('faPeriodPickerPanel');
+  if (el) el.outerHTML = faRenderPeriodPickerPanel();
+}
+
+// Comparison utk RANGE terpilih. "Previous Period" (blok N-bulan tepat
+// sebelum range) SELALU jadi opsi utama kalau datanya ada. 3M/6M Average &
+// Same Month Last Year HANYA ditawarkan utk single-month selection --
+// membandingkan SUM multi-bulan lawan AVERAGE 1-bulan itu keliru scr
+// magnitude (apple-to-orange), jadi sengaja tidak ditawarkan utk range.
+function faComparisonOptionsForIndices(indices){
+  const sorted = [...indices].sort((a,b)=>a-b);
+  const n = sorted.length, first = sorted[0], last = sorted[n-1];
   const opts = [];
-  if (curIdx-1 >= 0) opts.push({ key:'prevMonth', label:'Bulan Sebelumnya', indices:[curIdx-1] });
-  const idx3 = []; for (let i=curIdx-1;i>=Math.max(0,curIdx-3);i--) idx3.push(i);
-  if (idx3.length) opts.push({ key:'avg3', label:'Rata-rata 3 Bulan', indices: idx3 });
-  const idx6 = []; for (let i=curIdx-1;i>=Math.max(0,curIdx-6);i--) idx6.push(i);
-  if (idx6.length >= 4) opts.push({ key:'avg6', label:'Rata-rata 6 Bulan', indices: idx6 });
-  const [y,m] = PERIODS[curIdx].split('-');
-  const yoyIdx = PERIODS.indexOf(`${parseInt(y,10)-1}-${m}`);
-  if (yoyIdx>=0) opts.push({ key:'yoy', label:'Bulan Sama Tahun Lalu', indices:[yoyIdx] });
+  const prevBlock = [];
+  for (let i=first-1; i>=0 && prevBlock.length<n; i--) prevBlock.unshift(i);
+  if (prevBlock.length === n) opts.push({ key:'prevPeriod', label: n===1?'Bulan Sebelumnya':`${n} Bulan Sebelumnya`, indices: prevBlock });
+  if (n === 1) {
+    const idx3 = faHistoricalIdxList(first-1>=0?first-1:0,3).filter(i=>i<first);
+    if (idx3.length) opts.push({ key:'avg3', label:'Rata-rata 3 Bulan', indices: idx3 });
+    const idx6 = faHistoricalIdxList(first-1>=0?first-1:0,6).filter(i=>i<first);
+    if (idx6.length>=4) opts.push({ key:'avg6', label:'Rata-rata 6 Bulan', indices: idx6 });
+  }
+  const yoyIndices = sorted.map(i=>{ const [y,m]=PERIODS[i].split('-'); return PERIODS.indexOf(`${parseInt(y,10)-1}-${m}`); });
+  if (yoyIndices.every(i=>i>=0)) opts.push({ key:'yoy', label: n===1?'Bulan Sama Tahun Lalu':'Periode Sama Tahun Lalu', indices: yoyIndices });
   return opts;
 }
 
-function faKPISet(u, unitKey, idx){
+// Notasi ringkas Rp utk kartu KPI (mockup: "Rp10,64B") -- nilai penuh tetap
+// ada via title-tooltip, TIDAK menggantikan fmtRp() yg dipakai tabel detail.
+function faCompactRp(v){
+  if (v==null) return '-';
+  const sign = v<0 ? '-' : '';
+  const abs = Math.abs(v);
+  if (abs >= 1e9) return `${sign}Rp${(abs/1e9).toFixed(2).replace('.',',')}B`;
+  if (abs >= 1e6) return `${sign}Rp${(abs/1e6).toFixed(0)}M`;
+  if (abs >= 1e3) return `${sign}Rp${(abs/1e3).toFixed(0)}rb`;
+  return `${sign}Rp${abs.toFixed(0)}`;
+}
+
+// idxOrIndices: SATU index (perilaku asli, tak berubah) ATAU array index
+// (BARU -- dijumlahkan, dipakai Period Filter multi-bulan/quarter/YTD/tahun).
+// Backward compatible 100%: setiap caller lama pakai angka tunggal, hasilnya
+// identik persis spt sebelumnya (v(arr)=arr[idx]) -- cabang array HANYA
+// aktif kalau caller sengaja mengirim array.
+function faKPISet(u, unitKey, idxOrIndices){
   const rev = faLine(u,'Pendapatan'), hpp = faLine(u, faHppRowName(unitKey)), gp = faLine(u,'Laba Kotor'),
         opex = faLine(u,'Biaya Operasional'), op = faLine(u,'Laba Operasional'), np = faLine(u,'Laba Bersih');
-  const v = (arr)=> arr ? arr[idx] : null;
+  const isRange = Array.isArray(idxOrIndices);
+  const v = (arr)=> !arr ? null : (isRange ? faSum(arr, idxOrIndices) : arr[idxOrIndices]);
   const revenue=v(rev), cogs=v(hpp), grossProfit=v(gp), opexVal=v(opex), operatingProfit=v(op), netProfit=v(np);
   return {
     revenue, cogs, grossProfit, opex:opexVal, operatingProfit, netProfit,
@@ -767,40 +893,64 @@ function faUnitOptions(){
 function faSetUnit(k){ faUnit = k; renderFinancialAnalysis(); }
 function faSetCompareMode(k){ faCompareMode = k; renderFinancialAnalysis(); }
 
-function faBuildContext(unitKey){
-  const u = UNIT_DATA[unitKey];
-  const pm = faPeriodMeta();
-  const kpi = faKPISet(u, unitKey, pm.idx);
-  const cmpOptions = faComparisonOptions(pm.idx);
-  const cmpKey = (faCompareMode && cmpOptions.some(o=>o.key===faCompareMode)) ? faCompareMode : (cmpOptions[0] ? cmpOptions[0].key : null);
-  const cmpOpt = cmpOptions.find(o=>o.key===cmpKey) || null;
-  const baseIndices = cmpOpt ? cmpOpt.indices : (pm.idx-1>=0?[pm.idx-1]:[]);
-
+// kpiBase (comparison) rata2 (avg) utk opsi 3M/6M Average -- current cuma 1
+// bulan dibandingkan thd "bulan tipikal", BUKAN sum. Diekstrak dari kode lama
+// (dulu satu2nya jalur, sekarang jadi salah satu dari 2 jalur -- lihat
+// faKPIForComparison). Tak ada perubahan angka utk kasus yg sudah ada.
+function faKPISetAvg(u, unitKey, indices){
   const kpiBase = {
-    revenue: faAvg(faLine(u,'Pendapatan'), baseIndices), grossProfit: faAvg(faLine(u,'Laba Kotor'), baseIndices),
-    opex: faAvg(faLine(u,'Biaya Operasional'), baseIndices), operatingProfit: faAvg(faLine(u,'Laba Operasional'), baseIndices),
-    netProfit: faAvg(faLine(u,'Laba Bersih'), baseIndices), cogs: faAvg(faLine(u, faHppRowName(unitKey)), baseIndices),
+    revenue: faAvg(faLine(u,'Pendapatan'), indices), grossProfit: faAvg(faLine(u,'Laba Kotor'), indices),
+    opex: faAvg(faLine(u,'Biaya Operasional'), indices), operatingProfit: faAvg(faLine(u,'Laba Operasional'), indices),
+    netProfit: faAvg(faLine(u,'Laba Bersih'), indices), cogs: faAvg(faLine(u, faHppRowName(unitKey)), indices),
   };
   kpiBase.grossMarginPct = (kpiBase.revenue && kpiBase.grossProfit!=null) ? kpiBase.grossProfit/kpiBase.revenue*100 : null;
   kpiBase.opexRatioPct = (kpiBase.revenue && kpiBase.opex!=null) ? kpiBase.opex/kpiBase.revenue*100 : null;
   kpiBase.operatingMarginPct = (kpiBase.revenue && kpiBase.operatingProfit!=null) ? kpiBase.operatingProfit/kpiBase.revenue*100 : null;
   kpiBase.netMarginPct = (kpiBase.revenue && kpiBase.netProfit!=null) ? kpiBase.netProfit/kpiBase.revenue*100 : null;
+  return kpiBase;
+}
+// Comparison dgn magnitude yg BENAR: "Previous Period"/"YoY" (aggMethod:'sum')
+// dijumlah spy sepadan dgn `kpi` yg jg sum atas N bulan; "3M/6M Average"
+// (aggMethod:'avg') dirata2 krn current-nya cuma 1 bulan.
+function faKPIForComparison(u, unitKey, cmpOpt){
+  if (!cmpOpt) return faKPISetAvg(u, unitKey, []);
+  return cmpOpt.aggMethod === 'avg' ? faKPISetAvg(u, unitKey, cmpOpt.indices) : faKPISet(u, unitKey, cmpOpt.indices);
+}
+
+function faBuildContext(unitKey){
+  const u = UNIT_DATA[unitKey];
+  const indices = faCurrentIndices(); // range Period Filter terpilih (default: 1 bulan terakhir, identik perilaku lama)
+  const refIdx = indices[indices.length-1]; // bulan referensi utk hal yg secara semantik 1-titik-waktu (drivers/anomaly/forecast/outlet)
+  const pm = faPeriodMeta(refIdx);
+  const kpi = faKPISet(u, unitKey, indices); // AGGREGATE (sum) selama range terpilih -- utk 1 bulan, identik persis dgn sebelumnya
+  const cmpOptions = faComparisonOptionsForIndices(indices);
+  const cmpKey = (faCompareMode && cmpOptions.some(o=>o.key===faCompareMode)) ? faCompareMode : (cmpOptions[0] ? cmpOptions[0].key : null);
+  const cmpOpt = cmpOptions.find(o=>o.key===cmpKey) || null;
+  const baseIndices = cmpOpt ? cmpOpt.indices : [];
+  const kpiBase = faKPIForComparison(u, unitKey, cmpOpt);
 
   // Versi Rp KPI KHUSUS UTK PERBANDINGAN (poin 4 QA review): baseline (kpiBase
-  // di atas) SELALU bulan penuh/tutup, jadi kalau bulan berjalan msh OPEN,
-  // nilai `kpi` MTD-parsial mentah TIDAK adil dibandingkan langsung dgnnya --
-  // akan selalu kelihatan turun drastis hanya krn hari yg terlewati lebih
-  // sedikit. `kpi` (var lain) TETAP dipakai apa adanya utk DITAMPILKAN sbg
-  // "MTD Actual"; kpiForCompare HANYA dipakai internal utk hitung arah panah.
-  const kpiForCompare = {
+  // di atas) SELALU bulan penuh/tutup, jadi kalau bulan referensi msh OPEN,
+  // nilai `kpi` MTD-parsial mentah TIDAK adil dibandingkan langsung dgnnya.
+  // Scaling run-rate INI HANYA berlaku utk single-month selection -- kalau yg
+  // dipilih range multi-bulan yg SALAH SATUNYA (bulan terakhir) msh open,
+  // menskalakan SELURUH sum (bulan2 lain yg sudah closed ikut dikalikan)
+  // akan keliru; utk kasus itu kpiForCompare = kpi apa adanya + peringatan
+  // ditampilkan terpisah (lihat isRangeWithOpenMonth di render).
+  const isSingleMonth = indices.length === 1;
+  const kpiForCompare = isSingleMonth ? {
     revenue: faScaleForOpenMonth(kpi.revenue, pm), grossProfit: faScaleForOpenMonth(kpi.grossProfit, pm),
     opex: faScaleForOpenMonth(kpi.opex, pm), operatingProfit: faScaleForOpenMonth(kpi.operatingProfit, pm),
     netProfit: faScaleForOpenMonth(kpi.netProfit, pm),
-  };
+  } : kpi;
+  const isRangeWithOpenMonth = !isSingleMonth && pm.isOpen;
 
   const trendRevenue = faTrendClassify((faLine(u,'Pendapatan')||[]).slice(0,pm.idx+1).slice(-6));
   const trendNetProfit = faTrendClassify((faLine(u,'Laba Bersih')||[]).slice(0,pm.idx+1).slice(-6));
 
+  // Profit Drivers TETAP semantik 1-titik-waktu (bulan referensi = bulan
+  // terakhir dari range terpilih, vs rata2 baseIndices) -- perilaku ini SAMA
+  // PERSIS spt sebelum Period Filter ditambahkan, tidak diubah.
   const drivers = faProfitDrivers(u, unitKey, pm, baseIndices);
   const anomaliesAll = faAnomalyScan(pm);
   const anomalies = unitKey==='konsolidasi' ? anomaliesAll : anomaliesAll.filter(a=>a.outlet===u.label || a.outlet==='Group');
@@ -815,7 +965,7 @@ function faBuildContext(unitKey){
   const health = faFinancialHealthScore(u, unitKey, pm, { anomalies, outletPerf, ownClassification, dataCompleteness });
   const insights = faGenerateInsights({ pm, kpi, health, trendRevenue, trendNetProfit, drivers, anomalies, expenseRows, outletPerf, unitKey, u });
 
-  return { unitKey, u, pm, kpi, kpiBase, kpiForCompare, cmpOptions, cmpOpt, baseIndices, trendRevenue, trendNetProfit,
+  return { unitKey, u, indices, isSingleMonth, isRangeWithOpenMonth, pm, kpi, kpiBase, kpiForCompare, cmpOptions, cmpOpt, baseIndices, trendRevenue, trendNetProfit,
     drivers, anomalies, expenseRows, dataCompleteness, outletPerf, ownClassification, groupReconciliation, forecast, health, insights };
 }
 
@@ -907,33 +1057,67 @@ function faDeltaBadge(pct, goodIsUp){
   return `<span style="color:${color};font-weight:700;">${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
 }
 
+// Panel Period Filter -- dropdown inline di desktop, bottom-sheet penuh
+// lebar di mobile/tablet (murni via CSS, lihat .fa-period-panel di index.php).
+// Quick Select dulu, custom month-multiselect di bawahnya (poin B1/B2/P).
+function faRenderPeriodPickerPanel(){
+  if (!faPeriodPickerOpen) return `<div id="faPeriodPickerPanel"></div>`;
+  const presets = faPeriodPresets();
+  const draft = faPeriodDraft || new Set(faCurrentIndices());
+  const presetsHtml = presets.map(p=>`<button class="fa-preset-chip" onclick="faSetPeriodPreset('${p.key}')">${p.label}</button>`).join('');
+  const monthsHtml = PERIODS.map((p,i)=>{
+    const on = draft.has(i);
+    return `<div class="fa-month-cell ${on?'on':''}" onclick="faToggleDraftMonth(${i})">${periodLabel(p,true)}</div>`;
+  }).join('');
+  return `<div id="faPeriodPickerPanel">
+    <div class="fa-period-backdrop open" onclick="faTogglePeriodPicker()"></div>
+    <div class="fa-period-panel">
+      <div style="font-size:10.5px;font-weight:700;color:#9B93C4;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Quick Select</div>
+      <div class="fa-preset-row">${presetsHtml}</div>
+      <div style="font-size:10.5px;font-weight:700;color:#9B93C4;text-transform:uppercase;letter-spacing:.06em;margin:10px 0 8px;">Custom (pilih bulan)</div>
+      <div class="fa-month-grid">${monthsHtml}</div>
+      <div class="fa-picker-actions">
+        <button class="fa-picker-btn" onclick="faResetPeriod()">Reset</button>
+        <button class="fa-picker-btn primary" onclick="faApplyDraft()">Apply</button>
+      </div>
+    </div>
+  </div>`;
+}
+
 function faRenderTopBar(ctx){
-  const { unitKey, pm, cmpOptions, cmpOpt, dataCompleteness } = ctx;
-  const unitSel = `<select onchange="faSetUnit(this.value)" style="background:#171433;border:1px solid #2A2650;color:#F5F3FF;border-radius:8px;padding:8px 12px;font-size:12.5px;font-family:'Space Grotesk',sans-serif;font-weight:600;">
+  const { unitKey, pm, cmpOptions, cmpOpt, dataCompleteness, isRangeWithOpenMonth } = ctx;
+  const unitSel = `<select onchange="faSetUnit(this.value)">
     ${faUnitOptions().map(o=>`<option value="${o.key}" ${o.key===unitKey?'selected':''}>${o.label}</option>`).join('')}
   </select>`;
-  const cmpSel = cmpOptions.length ? `<select onchange="faSetCompareMode(this.value)" style="background:#171433;border:1px solid #2A2650;color:#F5F3FF;border-radius:8px;padding:8px 12px;font-size:12.5px;">
+  const cmpSel = cmpOptions.length ? `<select onchange="faSetCompareMode(this.value)">
     ${cmpOptions.map(o=>`<option value="${o.key}" ${cmpOpt&&o.key===cmpOpt.key?'selected':''}>vs ${o.label}</option>`).join('')}
-  </select>${faInfo('Budget tidak muncul sbg opsi krn source data belum punya kolom Budget. Opsi lain hanya tampil kalau datanya benar2 tersedia.')}` : `<span style="font-size:11.5px;color:#726C9C;">Belum ada periode pembanding.</span>`;
+  </select>` : `<span style="font-size:11px;color:#726C9C;">Belum ada pembanding.</span>`;
+
+  const periodCell = `<div class="fa-filter-cell clickable" onclick="faTogglePeriodPicker()" style="position:relative;">
+    <span class="fa-flabel">Period</span>
+    <div class="fa-filter-val">${faPeriodBadgeLabel()} ▾</div>
+    ${faRenderPeriodPickerPanel()}
+  </div>`;
+  const scopeCell = `<div class="fa-filter-cell"><span class="fa-flabel">Scope</span>${unitSel}</div>`;
+  const cmpCell = `<div class="fa-filter-cell"><span class="fa-flabel">Compare${faInfo('Budget tidak muncul sbg opsi krn source data belum punya kolom Budget. Opsi lain hanya tampil kalau datanya benar2 tersedia.')}</span>${cmpSel}</div>`;
+  const dcCell = dataCompleteness.overallPct!=null
+    ? `<div class="fa-filter-cell"><span class="fa-flabel">Data Completeness</span><div class="fa-filter-val" style="color:${dataCompleteness.confidence==='HIGH'?'#4ADE80':dataCompleteness.confidence==='MEDIUM'?'#FFC93C':'#FB7185'}">${dataCompleteness.overallPct.toFixed(0)}% · ${dataCompleteness.confidence}</div></div>`
+    : '';
 
   // "Data as of" pakai tanggal SISTEM (jam browser) sbg proxy -- source data
-  // (Google Sheet) belum punya kolom tanggal posting/transaksi eksplisit per
-  // baris, jadi TIDAK bisa diklaim sbg tanggal data ter-update sebenarnya.
-  // Ini keterbatasan yg didokumentasikan (bukan diklaim presisi) -- lihat
-  // faInfo di bawah & Remaining Limitations pada laporan validasi.
-  const asOf = pm.isOpen
-    ? `${pm.label} MTD — Data as of: ${pm.now.getDate()} ${MONTH_NAMES_ID[pm.now.getMonth()]} ${pm.now.getFullYear()}${faInfo('Tanggal sistem, BUKAN tanggal posting transaksi terakhir -- source data belum menyimpan tanggal posting eksplisit per baris. Kalau data bulan ini belum di-update hari ini, angka MTD bisa tertinggal dari tanggal yg ditampilkan.')}`
-    : `${pm.label} — Actual (bulan sudah tutup)`;
-  const compBadge = dataCompleteness.overallPct!=null
-    ? `<span style="background:#1F1B3D;border:1px solid #2A2650;border-radius:20px;padding:5px 12px;font-size:11.5px;color:#9B93C4;">Data Completeness: <b style="color:${dataCompleteness.confidence==='HIGH'?'#4ADE80':dataCompleteness.confidence==='MEDIUM'?'#FFC93C':'#FB7185'}">${dataCompleteness.overallPct.toFixed(0)}% (${dataCompleteness.confidence})</b></span>`
-    : '';
-  const warn = (dataCompleteness.overallPct!=null && dataCompleteness.overallPct<95)
-    ? `<div style="background:linear-gradient(90deg,#2E2015,#1F160D);border:1px solid #6B4A28;color:#E8D9C4;border-radius:10px;padding:10px 16px;font-size:12px;margin-bottom:16px;">⚠️ Analisis bisa berubah karena data keuangan periode ini belum lengkap.</div>` : '';
+  // belum punya kolom tanggal posting eksplisit per baris (keterbatasan yg
+  // didokumentasikan, bukan diklaim presisi).
+  const asOfText = pm.isOpen
+    ? `${pm.label} MTD — Data as of ${pm.now.getDate()} ${MONTH_NAMES_ID[pm.now.getMonth()]} ${pm.now.getFullYear()}${faInfo('Tanggal sistem, BUKAN tanggal posting transaksi terakhir.')}`
+    : `Bulan referensi: ${pm.label} — Actual (sudah tutup)`;
+  const rangeWarn = isRangeWithOpenMonth
+    ? `<div style="background:linear-gradient(90deg,#2E2015,#1F160D);border:1px solid #6B4A28;color:#E8D9C4;border-radius:10px;padding:9px 14px;font-size:11.5px;margin-bottom:10px;">⚠️ Rentang ini mencakup bulan yang masih berjalan (belum lengkap) — total gabungan bisa berubah saat bulan itu ditutup.</div>` : '';
+  const compWarn = (dataCompleteness.overallPct!=null && dataCompleteness.overallPct<95)
+    ? `<div style="background:linear-gradient(90deg,#2E2015,#1F160D);border:1px solid #6B4A28;color:#E8D9C4;border-radius:10px;padding:9px 14px;font-size:11.5px;margin-bottom:14px;">⚠️ Analisis bisa berubah karena data keuangan periode ini belum lengkap.</div>` : '';
 
-  return `<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:6px;">${unitSel}${cmpSel}</div>
-    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:14px;">
-      <span style="font-size:12px;color:#9B93C4;">${asOf}</span>${compBadge}
-    </div>${warn}`;
+  return `<div class="fa-filters">${periodCell}${scopeCell}${cmpCell}${dcCell}</div>
+    <div style="font-size:11.5px;color:#9B93C4;margin-bottom:10px;">${asOfText}</div>
+    ${rangeWarn}${compWarn}`;
 }
 
 // Tabel breakdown skor -- dipakai di dalam tile compact Management Snapshot
@@ -956,99 +1140,201 @@ function faHealthScoreBreakdownTable(health){
     <div style="font-size:10px;color:#726C9C;margin-top:6px;">Setiap dimensi dinormalisasi ke skor 0–100 dulu, baru dikali bobotnya (kolom "Kontribusi/Bobot") -- total skor = jumlah semua kontribusi ÷ total bobot (100). Deterministik, tanpa AI.</div>`;
 }
 
-function faRenderSnapshot(ctx){
-  const { kpi, forecast, dataCompleteness, insights, health, pm } = ctx;
-  const revLabel = pm.isOpen ? 'Revenue MTD' : 'Revenue (Actual)';
-  const npLabel = pm.isOpen ? 'Net Profit MTD' : 'Net Profit (Actual)';
+// ===== Management Overview (redesign) =====
+// Konsolidasi faRenderSnapshot+faRenderKPICards+faRenderRedFlagsOpportunities
+// lama (yg dulu menampilkan Revenue/GPMargin/NetProfit/NetMargin DUA KALI di
+// halaman yg sama -- 7-tile Snapshot lalu 7-card KPI Cards) jadi SATU baris
+// 6-kartu, sesuai mockup & Section E ("jangan ulangi KPI yg sama tanpa
+// konteks baru"). Semua sumber angka & logic (kpi/kpiBase/kpiForCompare/
+// health/forecast/drivers/insights) TIDAK berubah -- murni re-layout.
+function faRenderCards6(ctx){
+  const { kpi, kpiBase, kpiForCompare, cmpOpt, pm, health, forecast, insights } = ctx;
   const healthColor = health.status.code==='healthy' ? '#4ADE80' : health.status.code==='attention' ? '#FFC93C' : health.status.code==='critical' ? '#FB7185' : '#726C9C';
 
-  const grid = (label, val, sub, info)=>`<div style="flex:1;min-width:150px;">
-    <div style="font-size:10.5px;color:#726C9C;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">${label}${info?faInfo(info):''}</div>
-    <div class="mono" style="font-size:18px;font-weight:700;color:#F5F3FF;">${val}</div>
-    ${sub?`<div style="font-size:10.5px;color:#726C9C;margin-top:2px;">${sub}</div>`:''}
+  const rpDelta = (curForCompare, base, goodUp)=>{
+    const deltaPct = (curForCompare!=null && base) ? (curForCompare-base)/Math.abs(base)*100 : null;
+    return faDeltaBadge(deltaPct, goodUp);
+  };
+  const ppDelta = (cur, base, goodUp)=>{
+    const deltaPct = (cur!=null && base!=null) ? cur-base : null;
+    if (deltaPct==null) return `<span style="color:#726C9C;">→ n/a</span>`;
+    const improving = goodUp ? deltaPct>=0 : deltaPct<=0;
+    return `<span style="color:${improving?'#4ADE80':'#FB7185'};font-weight:700;">${deltaPct>=0?'↑':'↓'} ${Math.abs(deltaPct).toFixed(1)}pp</span>`;
+  };
+  const vsLabel = cmpOpt ? `vs ${cmpOpt.label}` : '';
+  const methodTag = pm.isOpen ? ` <span style="color:#4FC3F7;">(Proyeksi)</span>` : '';
+
+  const healthCard = `<div class="fa-card" title="Skor 0-100 dari 10 dimensi tertimbang, deterministik (bukan dihitung AI).">
+    <div class="fa-clabel">Financial Health</div>
+    <div class="fa-cval" style="color:${healthColor}">${health.score ?? '–'}<span style="font-size:11px;color:#726C9C;">/100</span></div>
+    <div class="fa-cdelta" style="color:${healthColor};font-weight:700;">${health.status.emoji} ${health.status.label}</div>
+    <details style="margin-top:5px;"><summary style="cursor:pointer;font-size:9.5px;color:#9B93C4;">Rincian skor</summary>${faHealthScoreBreakdownTable(health)}</details>
+  </div>`;
+  const revCard = `<div class="fa-card" title="${faEsc(fmtRp(kpi.revenue))}">
+    <div class="fa-clabel">Revenue${pm.isOpen?' MTD':''}</div>
+    <div class="fa-cval">${faCompactRp(kpi.revenue)}</div>
+    <div class="fa-cdelta">${rpDelta(kpiForCompare.revenue, kpiBase.revenue, true)}${methodTag} <span style="color:#726C9C;">${vsLabel}</span></div>
+  </div>`;
+  const gmCard = `<div class="fa-card">
+    <div class="fa-clabel">GP Margin</div>
+    <div class="fa-cval">${kpi.grossMarginPct!=null?kpi.grossMarginPct.toFixed(1)+'%':'-'}</div>
+    <div class="fa-cdelta">${ppDelta(kpi.grossMarginPct, kpiBase.grossMarginPct, true)} <span style="color:#726C9C;">${vsLabel}</span></div>
+  </div>`;
+  const npCard = `<div class="fa-card" title="${faEsc(fmtRp(kpi.netProfit))}">
+    <div class="fa-clabel">Net Profit${pm.isOpen?' MTD':''}</div>
+    <div class="fa-cval">${faCompactRp(kpi.netProfit)}</div>
+    <div class="fa-cdelta">${rpDelta(kpiForCompare.netProfit, kpiBase.netProfit, true)}${methodTag} <span style="color:#726C9C;">${vsLabel}</span></div>
+  </div>`;
+  const nmCard = `<div class="fa-card">
+    <div class="fa-clabel">Net Margin</div>
+    <div class="fa-cval">${kpi.netMarginPct!=null?kpi.netMarginPct.toFixed(1)+'%':'-'}</div>
+    <div class="fa-cdelta">${ppDelta(kpi.netMarginPct, kpiBase.netMarginPct, true)} <span style="color:#726C9C;">${vsLabel}</span></div>
   </div>`;
 
-  const healthTile = `<div style="flex:1;min-width:170px;">
-    <div style="font-size:10.5px;color:#726C9C;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Financial Health Score${faInfo('Skor 0-100 dari 10 dimensi tertimbang (tren revenue, margin, opex ratio, payroll ratio, anomali, kesehatan outlet, kelengkapan data, dst). Deterministik -- AI tidak ikut menghitung skor ini.')}</div>
-    <div style="display:flex;align-items:baseline;gap:8px;">
-      <span class="mono" style="font-size:24px;font-weight:800;color:${healthColor};">${health.score ?? '–'}<span style="font-size:12px;color:#726C9C;">/100</span></span>
-      <span style="font-size:11.5px;font-weight:700;color:${healthColor};">${health.status.emoji} ${health.status.label}</span>
+  // Kartu ke-6: kalau bulan berjalan msh OPEN -> Forecast Net Profit (paling
+  // relevan krn Actual blm final); kalau sudah tutup -> jumlah Critical Alerts
+  // (anomali critical + red flag critical) supaya kartu ke-6 selalu bawa
+  // konteks baru, bukan sekadar mengulang angka yg sudah ada di kartu lain.
+  const sixthCard = pm.isOpen
+    ? `<div class="fa-card" title="Base Case dari run-rate MTD -- lihat tab Forecast utk skenario lengkap.">
+        <div class="fa-clabel">Forecast Net Profit</div>
+        <div class="fa-cval">${forecast.mode==='open' ? (forecast.isEarlyMonth?'Blm cukup data':faCompactRp(forecast.base.netProfit)) : faCompactRp(forecast.actual.netProfit)}</div>
+        <div class="fa-cdelta" style="color:#726C9C;">Confidence: ${forecast.confidence||'-'}</div>
+      </div>`
+    : (()=>{
+        const criticalAnomalies = ctx.anomalies.filter(a=>a.severity==='critical').length;
+        const criticalFlags = insights.redFlags.filter(f=>f.severity==='critical').length;
+        const total = criticalAnomalies + criticalFlags;
+        return `<div class="fa-card" title="Anomali biaya berstatus critical + red flag critical bulan ini.">
+          <div class="fa-clabel">Critical Alerts</div>
+          <div class="fa-cval" style="color:${total>0?'#FB7185':'#4ADE80'}">${total}</div>
+          <div class="fa-cdelta" style="color:#726C9C;">${total>0?'Perlu ditindaklanjuti':'Tidak ada alert critical'}</div>
+        </div>`;
+      })();
+
+  return `<div class="fa-cards6">${healthCard}${revCard}${gmCard}${npCard}${nmCard}${sixthCard}</div>`;
+}
+
+// Trend mini-chart (Revenue & Net Profit, max 6 bulan) + Executive Insight
+// (3-5 insight teratas, gabungan red flag + opportunity + AI-independent,
+// dgn toggle "Lihat Semua" -- Section E: batasi jumlah insight default).
+let faOverviewInsightExpanded = false;
+function faToggleOverviewInsights(){ faOverviewInsightExpanded = !faOverviewInsightExpanded; renderFinancialAnalysis(); }
+function faRenderTrendAndInsights(ctx){
+  const { u, unitKey, pm, insights, trendRevenue, trendNetProfit } = ctx;
+  const months = Math.min(6, pm.idx+1);
+  const idxList = faHistoricalIdxList(pm.idx, Math.max(months,1));
+  const labels = idxList.map(i=>periodLabel(PERIODS[i], false));
+  const revSeries = idxList.map(i=>(faLine(u,'Pendapatan')||[])[i]);
+  const npSeries = idxList.map(i=>(faLine(u,'Laba Bersih')||[])[i]);
+  faOverviewTrendCache = {
+    datasets: [ { label:'Revenue', color:'#4FC3F7', data:revSeries, isCost:false }, { label:'Net Profit', color:'#FFC93C', data:npSeries, isCost:false } ],
+    labels
+  };
+  const chartCol = `<div class="fa-card" style="min-width:0;">
+    <div class="fa-clabel" style="margin-bottom:10px;">Revenue &amp; Net Profit — ${months} Bulan Terakhir</div>
+    <div class="chart-box" style="height:220px;"><div id="faOverviewTrendChart" style="width:100%;height:100%;"></div></div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:#C9C3E8;margin-top:8px;">
+      <div><b style="color:#4FC3F7;">Revenue:</b> ${trendRevenue.label}</div>
+      <div><b style="color:#FFC93C;">Net Profit:</b> ${trendNetProfit.label}</div>
     </div>
-    <details style="margin-top:4px;"><summary style="cursor:pointer;font-size:10.5px;color:#9B93C4;">Rincian skor</summary>${faHealthScoreBreakdownTable(health)}</details>
   </div>`;
 
-  const rev = grid(revLabel, fmtRp(kpi.revenue), null, 'Total pendapatan yg SUDAH tercatat sejak awal bulan berjalan sampai hari ini (bukan proyeksi) -- lihat tab Forecast utk estimasi akhir bulan.');
-  const gm = grid('Gross Profit Margin', kpi.grossMarginPct!=null?kpi.grossMarginPct.toFixed(1)+'%':'-');
-  const np = grid(npLabel, fmtRp(kpi.netProfit));
-  const nm = grid('Net Margin', kpi.netMarginPct!=null?kpi.netMarginPct.toFixed(1)+'%':'-');
-  const forecastVal = forecast.mode==='open' ? (forecast.isEarlyMonth ? 'Data belum cukup' : fmtRp(forecast.base.netProfit)) : fmtRp(forecast.actual.netProfit);
-  const forecastSub = forecast.mode==='open' ? `Base Case · Confidence: ${forecast.confidence}` : 'Actual (bulan sudah tutup)';
-  const fc = grid('Forecast Net Profit', forecastVal, forecastSub, 'Proyeksi Net Profit akhir bulan (Base Case, dari run-rate MTD) -- lihat tab Forecast utk skenario Conservative/Optimistic lengkap.');
-  const dc = grid('Data Completeness', dataCompleteness.overallPct!=null?dataCompleteness.overallPct.toFixed(0)+'%':'Not Available', dataCompleteness.confidence, 'Persentase baris akun (leaf) yg terisi utk periode ini, dirata-rata dgn cakupan data per-outlet (khusus tampilan Group). Bukan angka tetap -- dihitung ulang tiap periode.');
-
-  const listOf = (arr, empty)=> arr.length ? `<ul style="margin:0;padding-left:18px;font-size:12px;line-height:1.7;color:#C9C3E8;">${arr.map(x=>`<li>${faEsc(x.text||x)}</li>`).join('')}</ul>` : `<div style="font-size:11.5px;color:#726C9C;">${empty}</div>`;
-  const top3RedFlags = insights.redFlags.slice(0,3);
-  const top3Actions = insights.actionPlan.slice(0,3).map(a=>({ text:`${a.action}` }));
-  const top3Pos = ctx.drivers.positive.filter(d=>!d.name.startsWith('Driver positif lainnya')).slice(0,3).map(d=>({ text:`${d.name}: +${fmtRp(d.impact)}` }));
-  const top3Neg = ctx.drivers.negative.filter(d=>!d.name.startsWith('Driver negatif lainnya')).slice(0,3).map(d=>({ text:`${d.name}: ${fmtRp(d.impact)}` }));
-
-  const body = `
-    <div style="display:flex;flex-wrap:wrap;gap:18px;margin-bottom:18px;">${healthTile}${rev}${gm}${np}${nm}${fc}${dc}</div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px;">
-      <div><div style="font-size:11px;font-weight:700;color:#FB7185;margin-bottom:6px;">🔴 Top 3 Red Flags</div>${listOf(top3RedFlags,'Tidak ada red flag material.')}</div>
-      <div><div style="font-size:11px;font-weight:700;color:#4ADE80;margin-bottom:6px;">✅ Top 3 Positive Drivers</div>${listOf(top3Pos,'Belum ada driver positif signifikan.')}</div>
-      <div><div style="font-size:11px;font-weight:700;color:#FFC93C;margin-bottom:6px;">⚠️ Top 3 Negative Drivers</div>${listOf(top3Neg,'Belum ada driver negatif signifikan.')}</div>
-      <div><div style="font-size:11px;font-weight:700;color:#4FC3F7;margin-bottom:6px;">🎯 Top 3 Recommended Actions</div>${listOf(top3Actions,'Belum ada aksi prioritas.')}</div>
-    </div>`;
-  return faCard('Management Snapshot', body);
-}
-
-function faRenderKPICards(ctx){
-  const { kpi, kpiBase, kpiForCompare, cmpOpt, pm } = ctx;
-  const items = [
-    { label:'Revenue', val:kpi.revenue, cmpVal:kpiForCompare.revenue, base:kpiBase.revenue, goodUp:true, fmt:'rp' },
-    { label:'Gross Profit', val:kpi.grossProfit, cmpVal:kpiForCompare.grossProfit, base:kpiBase.grossProfit, goodUp:true, fmt:'rp' },
-    { label:'Gross Profit Margin', val:kpi.grossMarginPct, base:kpiBase.grossMarginPct, goodUp:true, fmt:'pp' },
-    { label:'OPEX', val:kpi.opex, cmpVal:kpiForCompare.opex, base:kpiBase.opex, goodUp:false, fmt:'rp' },
-    { label:'OPEX %', val:kpi.opexRatioPct, base:kpiBase.opexRatioPct, goodUp:false, fmt:'pp' },
-    { label:'Net Profit', val:kpi.netProfit, cmpVal:kpiForCompare.netProfit, base:kpiBase.netProfit, goodUp:true, fmt:'rp' },
-    { label:'Net Profit Margin', val:kpi.netMarginPct, base:kpiBase.netMarginPct, goodUp:true, fmt:'pp' },
+  // Executive Insight: gabungan Red Flags (kritikal) + Opportunities, urut by
+  // impact, default 3-5 tampil, sisanya di balik "Lihat Semua".
+  const combined = [
+    ...insights.redFlags.map(f=>({ text:f.text, tone:'#FB7185', icon:'🔴' })),
+    ...insights.opportunities.map(o=>({ text:o.text, tone:'#4ADE80', icon:'💡' })),
   ];
-  const cards = items.map(it=>{
-    // Rp (fmt='rp'): kalau bulan berjalan msh OPEN, bandingkan versi
-    // diproyeksikan-ke-akhir-bulan (cmpVal), BUKAN MTD-parsial mentah,
-    // supaya tak salah baca "turun 65%" hanya krn hari yg terlewati lebih
-    // sedikit (poin 4 QA review). Rasio (pp) selalu apple-to-apple sbg %,
-    // tak perlu diskalakan.
-    const compareVal = it.fmt==='rp' ? it.cmpVal : it.val;
-    const deltaPct = (compareVal!=null && it.base) ? (it.fmt==='pp' ? (compareVal-it.base) : (compareVal-it.base)/Math.abs(it.base)*100) : null;
-    const displayVal = it.val==null ? '-' : (it.fmt==='rp' ? fmtRp(it.val) : it.val.toFixed(1)+'%');
-    const badge = it.fmt==='pp'
-      ? (deltaPct==null ? `<span style="color:#726C9C;">→ n/a</span>` : `<span style="color:${(it.goodUp?deltaPct>=0:deltaPct<=0)?'#4ADE80':'#FB7185'};font-weight:700;">${deltaPct>=0?'↑':'↓'} ${Math.abs(deltaPct).toFixed(1)}pp</span>`)
-      : faDeltaBadge(deltaPct, it.goodUp);
-    const methodTag = (it.fmt==='rp' && pm.isOpen) ? ` <span style="color:#4FC3F7;font-size:9.5px;">(Proyeksi)</span>` : '';
-    return `<div class="kpi"><div class="bar" style="background:#FFC93C"></div>
-      <div class="lbl">${it.label}</div><div class="val mono">${displayVal}</div>
-      <div class="delta">${badge}${methodTag} <span style="color:#726C9C;font-size:10.5px;">vs ${cmpOpt?cmpOpt.label:'-'}</span></div>
-    </div>`;
-  }).join('');
-  const methodNote = pm.isOpen
-    ? `<div style="font-size:10.5px;color:#726C9C;margin-top:10px;">${faInfo('Bulan berjalan belum penuh. Untuk KPI Rupiah, arah panah membandingkan PROYEKSI akhir bulan (bukan MTD mentah) vs baseline -- supaya tidak salah baca sbg penurunan besar hanya krn hari yg terlewati lebih sedikit. Untuk margin/rasio (pp), MTD-to-date dibandingkan apa adanya krn sudah sepadan sbg persentase.')} Nilai Rupiah dibandingkan menggunakan Proyeksi Akhir Bulan (bukan MTD mentah); rasio (%) dibandingkan apa adanya.</div>`
+  const shown = faOverviewInsightExpanded ? combined : combined.slice(0,5);
+  const insightList = shown.length
+    ? shown.map(x=>`<div class="fa-insight" style="border-left:3px solid ${x.tone};">${x.icon} ${faEsc(x.text)}</div>`).join('')
+    : `<div style="font-size:11.5px;color:#726C9C;">Tidak ada insight material bulan ini.</div>`;
+  const toggleBtn = combined.length>5
+    ? `<button onclick="faToggleOverviewInsights()" style="background:none;border:none;color:#4FC3F7;font-size:11px;cursor:pointer;padding:4px 0;">${faOverviewInsightExpanded?'Tampilkan lebih sedikit':`Lihat Semua (${combined.length})`}</button>`
     : '';
-  return faCard('KPI Cards', `<div class="kpis" style="margin-bottom:0;">${cards}</div>${methodNote}`);
-}
-
-function faRenderRedFlagsOpportunities(ctx){
-  const { insights } = ctx;
-  const rf = insights.redFlags.length ? `<ul style="margin:0;padding-left:18px;font-size:12.5px;line-height:1.9;color:#F5C6CE;">${insights.redFlags.map(f=>`<li>${faEsc(f.text)}</li>`).join('')}</ul>` : `<div style="font-size:12px;color:#726C9C;">Tidak ada red flag material terdeteksi.</div>`;
-  const op = insights.opportunities.length ? `<ul style="margin:0;padding-left:18px;font-size:12.5px;line-height:1.9;color:#C7F0DA;">${insights.opportunities.map(o=>`<li>${faEsc(o.text)}</li>`).join('')}</ul>` : `<div style="font-size:12px;color:#726C9C;">Belum ada opportunity signifikan teridentifikasi.</div>`;
-  return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;">
-    ${faCard('🔴 Management Red Flags', rf)}
-    ${faCard('💡 Profit Opportunities', op)}
+  const insightCol = `<div class="fa-card" style="min-width:0;">
+    <div class="fa-clabel" style="margin-bottom:10px;">Executive Insight</div>
+    ${insightList}${toggleBtn}
   </div>`;
+
+  return `<div class="fa-grid2">${chartCol}${insightCol}</div>`;
+}
+let faOverviewTrendCache = null;
+function faDrawOverviewTrendChart(){
+  if (!faOverviewTrendCache) return;
+  renderSvgLineChart('faOverviewTrendChart', faOverviewTrendCache.datasets, faOverviewTrendCache.labels, { dualAxis:true });
 }
 
-function faRenderActionPlan(ctx){
+// Grid-3: Positive Drivers / Negative Drivers / Red Flags, top 3 tiap kolom,
+// link "Lihat Analisis Lengkap" ke tab Expense (drivers) -- bukan duplikasi
+// tabel Profit Bridge lengkap yg sudah ada di tab Expense.
+function faRenderDriversRedFlagsGrid(ctx){
+  const { drivers, insights } = ctx;
+  const rowsOf = (arr, color)=> arr.length
+    ? arr.slice(0,3).map(d=>`<div class="fa-driver-row"><span>${faEsc(d.name)}</span><span class="mono" style="color:${color};font-weight:700;">${d.impact>=0?'+':''}${fmtRp(d.impact)}</span></div>`).join('')
+    : `<div style="font-size:11.5px;color:#726C9C;padding:8px 0;">Tidak ada driver signifikan.</div>`;
+  const posCol = `<div class="fa-card">
+    <div class="fa-clabel">✅ Top Positive Drivers</div>
+    ${rowsOf(drivers.positive.filter(d=>!d.name.startsWith('Driver positif lainnya')), '#4ADE80')}
+    <a href="#" onclick="event.preventDefault();state.unit='faExpense';renderFinancialAnalysis();" style="font-size:10.5px;color:#4FC3F7;">Lihat analisis lengkap →</a>
+  </div>`;
+  const negCol = `<div class="fa-card">
+    <div class="fa-clabel">⚠️ Top Negative Drivers</div>
+    ${rowsOf(drivers.negative.filter(d=>!d.name.startsWith('Driver negatif lainnya')), '#FB7185')}
+    <a href="#" onclick="event.preventDefault();state.unit='faExpense';renderFinancialAnalysis();" style="font-size:10.5px;color:#4FC3F7;">Lihat analisis lengkap →</a>
+  </div>`;
+  const rfList = insights.redFlags.slice(0,3);
+  const rfCol = `<div class="fa-card">
+    <div class="fa-clabel">🔴 Top Red Flags</div>
+    ${rfList.length ? rfList.map(f=>`<div class="fa-driver-row"><span>${faEsc(f.text)}</span></div>`).join('') : `<div style="font-size:11.5px;color:#726C9C;padding:8px 0;">Tidak ada red flag material.</div>`}
+  </div>`;
+  return `<div class="fa-grid3">${posCol}${negCol}${rfCol}</div>`;
+}
+
+// Grid-2: compact Outlet Performance table (Group view only) + 3-4 kartu
+// Recommended Action (ringkas -- tabel lengkap dgn PIC/why/timing tetap ada
+// di bawah, tak dihapus, cuma tak diulang identik di kartu ringkas ini).
+function faRenderOutletAndActions(ctx){
+  const { outletPerf, insights } = ctx;
+  let outletCol;
+  if (outletPerf){
+    const rows = [...outletPerf.rows].sort((a,b)=>(b.netProfit||0)-(a.netProfit||0)).slice(0,8);
+    const tr = rows.map(r=>`<tr>
+        <td style="padding:6px 10px;font-size:11.5px;">${faEsc(r.label)}</td>
+        <td class="mono" style="padding:6px 10px;text-align:right;font-size:11px;">${fmtRp(r.netProfit)}</td>
+        <td class="mono" style="padding:6px 10px;text-align:right;font-size:11px;">${r.netMarginPct!=null?r.netMarginPct.toFixed(1)+'%':'-'}</td>
+        <td style="padding:6px 10px;text-align:center;"><span style="background:${faClassColor(r.classification)}22;color:${faClassColor(r.classification)};border:1px solid ${faClassColor(r.classification)};border-radius:7px;padding:1px 6px;font-size:9.5px;font-weight:700;">${r.classification}</span></td>
+      </tr>`).join('');
+    outletCol = `<div class="fa-card" style="min-width:0;">
+      <div class="fa-clabel" style="margin-bottom:8px;">Outlet Performance (Top 8 by Net Profit)</div>
+      <div class="tbl-wrap" style="max-height:280px;"><table>
+        <thead><tr><th style="text-align:left;padding:6px 10px;font-size:10px;">Outlet</th><th style="padding:6px 10px;font-size:10px;">Net Profit</th><th style="padding:6px 10px;font-size:10px;">Net Margin</th><th style="padding:6px 10px;font-size:10px;">Status</th></tr></thead>
+        <tbody>${tr}</tbody></table></div>
+      <a href="#" onclick="event.preventDefault();state.unit='faOutlet';renderFinancialAnalysis();" style="font-size:10.5px;color:#4FC3F7;">Lihat semua outlet →</a>
+    </div>`;
+  } else {
+    outletCol = `<div class="fa-card" style="min-width:0;"><div class="fa-clabel">Outlet Performance</div><div style="font-size:11.5px;color:#726C9C;">Pilih "Semua Outlet (Group)" utk melihat perbandingan antar outlet.</div></div>`;
+  }
+  const top4Actions = insights.actionPlan.slice(0,4);
+  const actionCards = top4Actions.length
+    ? top4Actions.map(a=>`<div class="fa-action-card"><b>${faEsc(a.issue)}</b><p>${faEsc(a.action)}${a.needsInvestigation?' <span style="color:#FFC93C;font-weight:700;">(Needs Investigation)</span>':''}</p>
+        <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:10px;color:#726C9C;"><span>${a.priority}</span><span class="mono">${fmtRp(a.impact)}</span></div>
+      </div>`).join('')
+    : `<div style="font-size:11.5px;color:#726C9C;">Tidak ada aksi prioritas bulan ini.</div>`;
+  const actionCol = `<div class="fa-card" style="min-width:0;">
+    <div class="fa-clabel" style="margin-bottom:8px;">Recommended Actions</div>
+    <div style="display:flex;flex-direction:column;gap:8px;">${actionCards}</div>
+    <a href="#faActionPlanFull" style="font-size:10.5px;color:#4FC3F7;display:inline-block;margin-top:8px;">Lihat semua aksi (tabel lengkap) ↓</a>
+  </div>`;
+  return `<div class="fa-grid2">${outletCol}${actionCol}</div>`;
+}
+
+// Tabel Recommended Actions LENGKAP (semua kolom: Why/PIC/Timing) -- tetap
+// dipertahankan penuh di bawah grid ringkas di atas (bukan dihapus), supaya
+// kapabilitas detail existing tidak hilang (constraint: preserve semua
+// kapabilitas yg sudah ada).
+function faRenderActionPlanFull(ctx){
   const groups = ['Immediate — 7 Hari','Short Term — 30 Hari','Medium Term — 90 Hari'];
   const rowsHtml = ctx.insights.actionPlan.length ? ctx.insights.actionPlan.map(a=>`<tr>
       <td style="padding:10px 14px;font-size:12px;border-bottom:1px solid #2A2650;">${a.priority}</td>
@@ -1065,7 +1351,7 @@ function faRenderActionPlan(ctx){
       <th style="text-align:left;">Outlet</th><th style="text-align:left;">Suggested PIC</th><th>Financial Impact</th>
     </tr></thead><tbody>${rowsHtml}</tbody></table></div>
     <div style="font-size:10.5px;color:#726C9C;margin-top:8px;">Kelompok waktu: ${groups.join(' · ')}. PIC berbasis peran (bukan nama individu) — sesuaikan dengan struktur organisasi Anda.</div>`;
-  return faCard('Recommended Actions', body);
+  return `<div id="faActionPlanFull">${faCard('Recommended Actions — Full Detail', body)}</div>`;
 }
 
 function faRenderAISummary(){
@@ -1075,8 +1361,12 @@ function faRenderAISummary(){
 }
 
 function faRenderOverviewPage(ctx){
-  return faRenderSnapshot(ctx) + faRenderKPICards(ctx) + faRenderAISummary()
-    + faRenderRedFlagsOpportunities(ctx) + faRenderActionPlan(ctx);
+  return faRenderCards6(ctx)
+    + faRenderTrendAndInsights(ctx)
+    + faRenderDriversRedFlagsGrid(ctx)
+    + faRenderAISummary()
+    + faRenderOutletAndActions(ctx)
+    + faRenderActionPlanFull(ctx);
 }
 
 /* ---- Trend tab ---- */
@@ -1355,7 +1645,7 @@ function faRenderForecastPage(ctx){
 // live-fetch menambah periode baru, atau user ganti outlet/comparison).
 let FA_CTX_CACHE = null;
 function faBuildContextCached(unitKey){
-  const cacheKey = `${unitKey}|${PERIODS[PERIODS.length-1]}|${PERIODS.length}|${faCompareMode||''}`;
+  const cacheKey = `${unitKey}|${PERIODS[PERIODS.length-1]}|${PERIODS.length}|${faCompareMode||''}|${faCurrentIndices().join(',')}`;
   if (FA_CTX_CACHE && FA_CTX_CACHE.key === cacheKey) return FA_CTX_CACHE.ctx;
   const ctx = faBuildContext(unitKey);
   FA_CTX_CACHE = { key: cacheKey, ctx };
@@ -1374,5 +1664,6 @@ function renderFinancialAnalysis(){
   else if (state.unit==='faForecast') html += faRenderForecastPage(ctx);
   content.innerHTML = html;
   if (state.unit==='faTrend') faDrawTrendChart();
+  if (state.unit==='faOverview') faDrawOverviewTrendChart();
   faMaybeRenderAISummary(ctx);
 }
