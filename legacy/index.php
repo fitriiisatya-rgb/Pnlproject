@@ -7764,7 +7764,18 @@ function applyRowsToUnitData(allRows){
       const filtered = candidates.filter(r => (r.Path||'').includes(pathHint));
       if (filtered.length) candidates = filtered;
     }
-    return candidates.find(r => r.Amount !== '' && r.Amount !== null && r.Amount !== undefined) || candidates[0];
+    // PENTING: cek dgn parseAmount(), BUKAN r.Amount !== '' -- krn baris Header
+    // (subtotal section-marker, BUKAN nilai akun sebenarnya) sering memakai
+    // placeholder "-" pada Amount, yg lolos cek string non-kosong tp
+    // parseAmount()-nya null. Kalau Account yg sama muncul di baris Header
+    // (Path pendek, mis. "Pendapatan > X") DAN baris Detail (Path lengkap,
+    // mis. "Pendapatan > X > X") -- spt "Pendapatan Sales Eksekutif" -- &
+    // Header muncul duluan di data, versi lama salah pilih Header (Amount="-"
+    // -> parseAmount null -> tak pernah keisi) shg baris Detail yg py angka
+    // asli tak pernah kepakai. Cek via parseAmount melewati placeholder apa
+    // pun (baik "-" maupun string non-numerik lain) & lanjut ke kandidat
+    // berikutnya yg beneran py angka.
+    return candidates.find(r => parseAmount(r.Amount) !== null) || candidates[0];
   }
 
   // MERGE per-sel: cuma menimpa bulan yang benar2 ada datanya di CSV ini,
