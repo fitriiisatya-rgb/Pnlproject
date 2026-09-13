@@ -767,16 +767,30 @@ function faPerformanceDriverBasisBiasa(idxList){
   const revenue = sum('Pendapatan'), discount = sum('Diskon'), hpp = sum(faHppRowName('konsolidasi')),
         grossProfit = sum('Laba Kotor'), opex = sum('Biaya Operasional'), depreciation = sum('Biaya Penyusutan'),
         tax = sum('Biaya Pajak'), costMgmt = sum('Cost of Management'), netProfit = sum('Laba Bersih'),
-        // "Bunga" (interest) ADA sbg baris waterfall nyata (mis. Konsolidasi/
-        // Manufaktur) tp TAK disebut di daftar bucket spek -- ditemukan lewat
-        // verifikasi bridge thd data real (residual material sblm ini
-        // ditambahkan). Dimasukkan sbg bucket ke-8 spy bridge rekonsiliasi
-        // PERSIS, bukan dibiarkan jadi "residual" tiap kali entity itu py
-        // biaya bunga.
         interest = sum('Bunga');
   if (revenue==null && netProfit==null) return null;
   const netRevenue = (revenue!=null && discount!=null) ? revenue+discount : null;
-  return { revenue, discount, netRevenue, hpp, grossProfit, opex, depreciation, tax, costMgmt, interest, netProfit };
+  // FINAL QA PATCH section 2: baris LAIN yg SAH ADA di waterfall Konsolidasi
+  // antara "Laba Operasional" & "Laba Bersih" (mis. row P&L riil yg belum
+  // dikenal nama tetapnya di atas) ditangkap GENERIK dari POSISI-nya, bukan
+  // ditebak namanya -- ini akar perbaikan utk residual material yg
+  // sebelumnya muncul sbg "Unexplained": kalau sumber punya baris riil
+  // SELAIN Penyusutan/Pajak/Bunga/Cost of Management di antara 2 baris itu,
+  // sekarang otomatis ikut jadi driver-nya sendiri, apa pun namanya.
+  const knownBelowOperating = new Set(['Biaya Penyusutan','Biaya Pajak','Bunga','Cost of Management']);
+  const otherBelowOperating = {};
+  const idxOp = u.waterfall.findIndex(r=>r.name.replace(/<[^>]*>/g,'').trim()==='Laba Operasional');
+  const idxNet = u.waterfall.findIndex(r=>r.name.replace(/<[^>]*>/g,'').trim()==='Laba Bersih');
+  if (idxOp!==-1 && idxNet!==-1 && idxNet>idxOp){
+    for (let i=idxOp+1;i<idxNet;i++){
+      const row = u.waterfall[i];
+      const name = row.name.replace(/<[^>]*>/g,'').trim();
+      if (knownBelowOperating.has(name)) continue;
+      const val = faSum(row.values, idxList);
+      if (val!=null) otherBelowOperating[name] = val;
+    }
+  }
+  return { revenue, discount, netRevenue, hpp, grossProfit, opex, depreciation, tax, costMgmt, interest, otherBelowOperating, netProfit };
 }
 // Basis FRANCHISE -- SUM computeFranchiseOutlet() lintas 14 outlet (outlet
 // tanpa hasOnlineData periode itu TIDAK ikut dijumlah, bukan dianggap nol).
@@ -834,20 +848,36 @@ function faBuildDriverBridge(cur, prev){
   add('Tax', cur.tax, prev.tax, true);
   add('Cost of Management', cur.costMgmt, prev.costMgmt, true);
   add('Interest (Bunga)', cur.interest, prev.interest, true);
+  // Baris "lain" generik (section 2) -- HANYA mode Biasa (cur.otherBelowOperating
+  // ada); Franchise strukturnya sudah lengkap & tetap via computeFranchiseOutlet.
+  if (cur.otherBelowOperating){
+    Object.keys(cur.otherBelowOperating).forEach(name=>{
+      if (prev.otherBelowOperating && Object.prototype.hasOwnProperty.call(prev.otherBelowOperating, name)){
+        add(name, cur.otherBelowOperating[name], prev.otherBelowOperating[name], true);
+      }
+    });
+  }
 
   const deltaNetProfit = (cur.netProfit!=null && prev.netProfit!=null) ? cur.netProfit-prev.netProfit : null;
   const explainedBeforeResidual = drivers.reduce((s,d)=>s+d.impact,0);
   const residual = deltaNetProfit!=null ? deltaNetProfit-explainedBeforeResidual : null;
-  let reconciliationIssue = false;
+  // FINAL QA PATCH section 1: "material residual belum terpetakan" (data-
+  // quality/completeness concern) TIDAK SAMA dgn "bridge tak rekonsiliasi"
+  // (masalah aritmatika). totalShown SELALU mencakup baris residual (kalau
+  // ada) shg Previous+totalShown SELALU = Current scr aljabar -- reconciled
+  // dicek LANGSUNG dari situ, bukan dari materialitas residual. hasMaterialResidual
+  // HANYA dipakai utk label baris residual & catatan "mapping issue" terpisah,
+  // TIDAK PERNAH membalik badge ✓/⚠️ Rekonsiliasi.
+  let hasMaterialResidual = false;
   if (residual!=null && Math.abs(residual) > FA_CONFIG.reconciliation_tolerance_amount){
-    const isMaterial = Math.abs(residual) >= FA_CONFIG.minimum_materiality_amount;
-    reconciliationIssue = isMaterial;
-    drivers.push({ name: isMaterial ? '⚠️ Unexplained Residual (calculation issue)' : 'Other / Rounding', curVal:null, prevVal:null, delta:null, impact:residual });
+    hasMaterialResidual = Math.abs(residual) >= FA_CONFIG.minimum_materiality_amount;
+    drivers.push({ name: hasMaterialResidual ? '⚠️ Unmapped Residual (mapping issue)' : 'Other / Rounding', curVal:null, prevVal:null, delta:null, impact:residual });
   }
   const totalShown = drivers.reduce((s,d)=>s+d.impact,0);
+  const reconciled = deltaNetProfit==null ? null : Math.abs(prev.netProfit + totalShown - cur.netProfit) <= FA_CONFIG.reconciliation_tolerance_amount;
   const positive = drivers.filter(d=>d.impact>0).sort((a,b)=>b.impact-a.impact);
   const negative = drivers.filter(d=>d.impact<0).sort((a,b)=>a.impact-b.impact);
-  return { drivers, positive, negative, deltaNetProfit, totalShown, reconciliationIssue,
+  return { drivers, positive, negative, deltaNetProfit, totalShown, reconciled, hasMaterialResidual,
     curNetProfit:cur.netProfit, prevNetProfit:prev.netProfit,
     curNetMarginPct: cur.revenue ? cur.netProfit/cur.revenue*100 : null,
     prevNetMarginPct: prev.revenue ? prev.netProfit/prev.revenue*100 : null };
@@ -877,7 +907,12 @@ function faRenderMarginLeakageStrip(cur, mode, idxList){
   const hppPct = cur.hpp!=null ? cur.hpp/rev*100 : null;
   const opexPct = cur.opex!=null ? cur.opex/rev*100 : null;
   const depPct = cur.depreciation!=null ? cur.depreciation/rev*100 : null;
-  const taxPct = cur.tax!=null ? cur.tax/rev*100 : null;
+  // Section 4 fix: "Biaya Pajak" negatif di data = kredit/manfaat pajak riil
+  // (sisi presentasi saja, angka sumber TIDAK diubah) -- ditampilkan sbg
+  // "Tax Benefit" positif+hijau, bukan "Tax -0.3%" yg terbaca kontradiktif
+  // (label biaya tp angkanya negatif, warna tetap merah).
+  const taxIsBenefit = cur.tax!=null && cur.tax<0;
+  const taxPct = cur.tax!=null ? Math.abs(cur.tax)/rev*100 : null;
   const cmPct = cur.costMgmt!=null ? cur.costMgmt/rev*100 : null;
   const interestPct = cur.interest!=null ? cur.interest/rev*100 : null;
   const netMarginPct = cur.netProfit!=null ? cur.netProfit/rev*100 : null;
@@ -895,7 +930,7 @@ function faRenderMarginLeakageStrip(cur, mode, idxList){
     ${chip('OPEX', opexPct, '#FB7185')}
     ${chip('Payroll', payrollPct, '#FFC93C', '(inside OPEX)')}
     ${chip('Depreciation', depPct, '#FB7185')}
-    ${chip('Tax', taxPct, '#FB7185')}
+    ${chip(taxIsBenefit?'Tax Benefit':'Tax', taxPct, taxIsBenefit?'#4ADE80':'#FB7185')}
     ${chip('Cost of Management', cmPct, '#FB7185')}
     ${chip('Interest', interestPct, '#FB7185')}
     ${chip('Net Margin', netMarginPct, netMarginPct>=0?'#4ADE80':'#FB7185')}
@@ -1017,11 +1052,18 @@ function faRenderPerformanceDriverCard(ctx){
 
   const leakageLabel = `<div style="font-size:10.5px;font-weight:700;color:#9B93C4;text-transform:uppercase;margin:14px 0 4px;">Margin Leakage (% of Revenue)</div>`;
   const leakage = faRenderMarginLeakageStrip(cur, mode, ctx.indices);
-  const reconLine = `<div style="margin-top:12px;padding:9px 14px;border-radius:8px;background:${bridge.reconciliationIssue?'#2A1B1B':'#14201A'};border:1px solid ${bridge.reconciliationIssue?'#FB7185':'#2E9E6B'};font-size:10.5px;">
-    ${bridge.reconciliationIssue?'⚠️ TIDAK REKONSILIASI':'✓ Rekonsiliasi'}: ${faEsc(prevLabel)} Net Profit (${fmtRp(prev.netProfit)}) + Σ Driver Impacts (${fmtRp(bridge.totalShown)}) = ${fmtRp(prev.netProfit+bridge.totalShown)} ${bridge.reconciliationIssue?'≠':'='} ${faEsc(curLabel)} Net Profit (${fmtRp(cur.netProfit)}).
+  // Section 1 fix: badge ✓/⚠️ HANYA dari bridge.reconciled (murni cek
+  // aljabar Previous+Σshown=Current -- SELALU benar krn totalShown sudah
+  // mencakup baris residual). hasMaterialResidual (data-quality/mapping
+  // concern) ditampilkan sbg catatan TERPISAH, tak pernah membalik badge ini.
+  const reconLine = `<div style="margin-top:12px;padding:9px 14px;border-radius:8px;background:${bridge.reconciled===false?'#2A1B1B':'#14201A'};border:1px solid ${bridge.reconciled===false?'#FB7185':'#2E9E6B'};font-size:10.5px;">
+    ${bridge.reconciled===false?'⚠️ TIDAK REKONSILIASI':'✓ Rekonsiliasi'}: ${faEsc(prevLabel)} Net Profit (${fmtRp(prev.netProfit)}) + Σ Driver Impacts (${fmtRp(bridge.totalShown)}) = ${fmtRp(prev.netProfit+bridge.totalShown)} ${bridge.reconciled===false?'≠':'='} ${faEsc(curLabel)} Net Profit (${fmtRp(cur.netProfit)}).
   </div>`;
+  const mappingNote = bridge.hasMaterialResidual ? `<div style="margin-top:8px;padding:9px 14px;border-radius:8px;background:#2E2015;border:1px solid #FFC93C;font-size:10.5px;color:#E8D9C4;">
+    ⚠️ Mapping issue: a material amount (${fmtRp(bridge.drivers.find(d=>d.name.indexOf('Unmapped')!==-1).impact)}) in this period's Net Profit change is not explained by any named driver above. The bridge still reconciles arithmetically (it's included as its own row), but no real P&L line currently accounts for it — see Driver Detail for the exact amount and report it if it recurs.
+  </div>` : '';
 
-  return faCard('Performance Driver Analysis', `${subNote}${execSummary}${bridgeVisual}${summaryHtml}${topBlocks}${leakageLabel}${leakage}${tableHtml}${reconLine}`);
+  return faCard('Performance Driver Analysis', `${subNote}${execSummary}${bridgeVisual}${summaryHtml}${topBlocks}${leakageLabel}${leakage}${tableHtml}${reconLine}${mappingNote}`);
 }
 
 // ===== Outlet Performance & Classification =====
