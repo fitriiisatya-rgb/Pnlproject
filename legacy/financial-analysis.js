@@ -814,13 +814,83 @@ function faOutletPerformance(pm){
     else cls='STABLE';
     r.classification = cls;
   });
-  const rank = (key, dir=-1) => [...rows].filter(r=>r[key]!=null).sort((a,b)=>dir*(b[key]-a[key])).slice(0,5);
-  return { rows, rankings: {
-    highestRevenue: rank('revenue'), highestNetProfit: rank('netProfit'), highestNetMargin: rank('netMarginPct'),
-    highestGrowth: rank('growthPct'), biggestImprovement: rank('netMarginDeltaVs3mo'), biggestDecline: rank('netMarginDeltaVs3mo', 1),
-    highestExpenseRatio: rank('opexRatioPct'), lowestProfitability: rank('netMarginPct', 1),
-  } };
+  return { rows };
 }
+
+/* ---- Outlet Ranking (Top 5): mode-aware (Biasa | Franchise) ----
+ * Dipisah dari faOutletPerformance() di atas (yg TETAP dipakai apa adanya
+ * utk tabel "Outlet Performance" + classification + insights, TIDAK diubah)
+ * krn definisi "Margin Change" di sini beda: vs bulan sebelumnya (bukan vs
+ * rata2 3 bulan spt netMarginDeltaVs3mo yg dipakai classification/insights).
+ * faOutletPerformance() SEBELUMNYA py rank()/rankings sendiri dgn bug arah
+ * sort terbalik (dir=-1 default malah menghasilkan ASCENDING, bukan
+ * DESCENDING) -- dibuang di atas, digantikan sepenuhnya oleh fungsi di bawah
+ * (faRankRows di sini py arah yg benar & jadi SATU-SATUNYA sumber sort utk
+ * panel Ranking, baik mode Biasa maupun Franchise). */
+function faRankRows(rows, key, dir=-1){
+  // dir=-1 (default) -> DESCENDING (nilai tertinggi dulu, utk "Highest ...").
+  // dir=1 -> ASCENDING (nilai terendah/paling negatif dulu, utk "Lowest
+  // Profitability" & "Biggest Decline").
+  return rows.filter(r=>r.status!=='NO_DATA' && r[key]!=null).sort((a,b)=>dir*(a[key]-b[key])).slice(0,5);
+}
+function faBuildOutletRankings(rows){
+  return {
+    highestRevenue: faRankRows(rows,'revenue'),
+    highestNetProfit: faRankRows(rows,'netProfit'),
+    highestNetMargin: faRankRows(rows,'netMarginPct'),
+    highestGrowth: faRankRows(rows,'growthPct'),
+    biggestImprovement: faRankRows(rows,'marginChangePct'),
+    biggestDecline: faRankRows(rows,'marginChangePct', 1),
+    highestExpenseRatio: faRankRows(rows,'opexRatioPct'),
+    lowestProfitability: faRankRows(rows,'netMarginPct', 1),
+  };
+}
+// Mode BIASA -- basis sama persis dgn faOutletPerformance (faKPISet dari
+// Data/UNIT_DATA), HANYA beda di marginChangePct (vs bulan sebelumnya, bukan
+// rata2 3 bulan). "Previous available month" = curIdx-1 kalau ADA datanya
+// (sama spt growthPct yg sudah ada di faOutletPerformance) -- TIDAK
+// scan mundur beberapa bulan kalau bulan tepat sebelumnya kosong.
+function faOutletRankingRowsBiasa(pm){
+  const curIdx = pm.idx, prevIdx = curIdx-1;
+  const rows = OUTLET_KEYS.map(k=>{
+    const u = UNIT_DATA[k];
+    const kpi = faKPISet(u, k, curIdx);
+    const kpiPrev = prevIdx>=0 ? faKPISet(u, k, prevIdx) : null;
+    const revenue = kpi.revenue, netProfit = kpi.netProfit;
+    const netMarginPct = kpi.netMarginPct, opexRatioPct = kpi.opexRatioPct;
+    const growthPct = (revenue!=null && kpiPrev && kpiPrev.revenue) ? (revenue-kpiPrev.revenue)/Math.abs(kpiPrev.revenue)*100 : null;
+    const marginChangePct = (netMarginPct!=null && kpiPrev && kpiPrev.netMarginPct!=null) ? netMarginPct-kpiPrev.netMarginPct : null;
+    const status = (revenue==null && netProfit==null) ? 'NO_DATA' : 'OK';
+    return { key:k, label:u.label, revenue, netProfit, netMarginPct, opexRatioPct, growthPct, marginChangePct, status };
+  });
+  return { rows, rankings: faBuildOutletRankings(rows) };
+}
+// Mode FRANCHISE -- basis computeFranchiseOutlet() (index.php), SAMA
+// formula yg sudah dipakai panel Franchise & Sanding Biasa vs Franchise,
+// tidak ada logika finansial baru diciptakan di sini.
+function faOutletRankingRowsFranchise(pm){
+  const curIdx = pm.idx, prevIdx = curIdx-1;
+  const rows = OUTLET_KEYS.map(k=>{
+    const d = computeFranchiseOutlet(k, [curIdx]);
+    if (!d.hasOnlineData) return { key:k, label:UNIT_DATA[k].label, revenue:null, netProfit:null, netMarginPct:null, opexRatioPct:null, growthPct:null, marginChangePct:null, status:'NO_DATA' };
+    const revenue = d.jumlahPendapatan, netProfit = d.labaBersih;
+    const netMarginPct = revenue ? netProfit/revenue*100 : null;
+    const opexRatioPct = revenue ? d.biayaOps/revenue*100 : null;
+    let growthPct = null, marginChangePct = null;
+    if (prevIdx>=0){
+      const dPrev = computeFranchiseOutlet(k, [prevIdx]);
+      if (dPrev.hasOnlineData && dPrev.jumlahPendapatan){
+        growthPct = (revenue-dPrev.jumlahPendapatan)/Math.abs(dPrev.jumlahPendapatan)*100;
+        const prevMarginPct = dPrev.jumlahPendapatan ? dPrev.labaBersih/dPrev.jumlahPendapatan*100 : null;
+        if (prevMarginPct!=null && netMarginPct!=null) marginChangePct = netMarginPct-prevMarginPct;
+      }
+    }
+    return { key:k, label:UNIT_DATA[k].label, revenue, netProfit, netMarginPct, opexRatioPct, growthPct, marginChangePct, status:'OK' };
+  });
+  return { rows, rankings: faBuildOutletRankings(rows) };
+}
+let faOutletRankMode = 'biasa'; // 'biasa' | 'franchise' -- default Biasa, per spek
+function faSetOutletRankMode(m){ faOutletRankMode = m; renderFinancialAnalysis(); }
 
 // ===== Red Flags / Opportunities / Action Plan (rule-based, bukan AI) =====
 function faGenerateInsights(ctx){
@@ -957,8 +1027,11 @@ function faBuildContext(unitKey){
   const expenseRows = faExpenseAnalysis(u, unitKey, pm);
   const dataCompleteness = faDataCompleteness(u, unitKey, pm);
 
-  let outletPerf = null, ownClassification = null, groupReconciliation = null;
-  if (unitKey==='konsolidasi') { outletPerf = faOutletPerformance(pm); groupReconciliation = faGroupReconciliation(pm); }
+  let outletPerf = null, ownClassification = null, groupReconciliation = null, outletRankBiasa = null, outletRankFranchise = null;
+  if (unitKey==='konsolidasi') {
+    outletPerf = faOutletPerformance(pm); groupReconciliation = faGroupReconciliation(pm);
+    outletRankBiasa = faOutletRankingRowsBiasa(pm); outletRankFranchise = faOutletRankingRowsFranchise(pm);
+  }
   else { const full = faOutletPerformance(pm); const mine = full.rows.find(r=>r.key===unitKey); ownClassification = mine ? mine.classification : null; }
 
   const forecast = faForecast(u, unitKey, pm);
@@ -966,7 +1039,7 @@ function faBuildContext(unitKey){
   const insights = faGenerateInsights({ pm, kpi, health, trendRevenue, trendNetProfit, drivers, anomalies, expenseRows, outletPerf, unitKey, u });
 
   return { unitKey, u, indices, isSingleMonth, isRangeWithOpenMonth, pm, kpi, kpiBase, kpiForCompare, cmpOptions, cmpOpt, baseIndices, trendRevenue, trendNetProfit,
-    drivers, anomalies, expenseRows, dataCompleteness, outletPerf, ownClassification, groupReconciliation, forecast, health, insights };
+    drivers, anomalies, expenseRows, dataCompleteness, outletPerf, ownClassification, groupReconciliation, outletRankBiasa, outletRankFranchise, forecast, health, insights };
 }
 
 /* ============================== AI layer ============================== */
@@ -1567,22 +1640,38 @@ function faRenderOutletPage(ctx){
       <th>Net Profit</th><th>Net Margin</th><th>Contribution</th><th style="text-align:left;">Trend</th><th>Status</th>
     </tr></thead><tbody>${tr}</tbody></table></div>`;
 
-  const rk = ctx.outletPerf.rankings;
-  const rankBlock = (title, list, key, fmt)=> `<div style="min-width:220px;flex:1;">
+  // Toggle Biasa|Franchise -- style pill sama persis dgn setDiffMethod() di
+  // index.php, supaya konsisten dgn UI dashboard yg sudah ada. Ganti mode TAK
+  // memanggil ulang computeFranchiseOutlet dari sini (sudah dihitung sekali
+  // di faBuildContext utk kedua mode) -- cuma pilih dataset mana yg dipakai
+  // & renderFinancialAnalysis() ulang, tak ada reload halaman.
+  const rankModeBtn = (val,label)=>{
+    const on = faOutletRankMode===val;
+    return `<div onclick="faSetOutletRankMode('${val}')" style="cursor:pointer;padding:5px 12px;border-radius:20px;font-size:11.5px;font-weight:600;font-family:'Space Grotesk',sans-serif;border:1px solid ${on?'#FFC93C':'#2A2650'};color:${on?'#FFC93C':'#726C9C'};background:${on?'#FFC93C22':'transparent'};">${label}</div>`;
+  };
+  const rankModeToggle = `<div style="display:flex;gap:6px;">${rankModeBtn('biasa','Biasa')}${rankModeBtn('franchise','Franchise')}</div>`;
+
+  const rankSrc = faOutletRankMode==='franchise' ? ctx.outletRankFranchise : ctx.outletRankBiasa;
+  const rk = rankSrc.rankings;
+  const rankBlock = (title, list, key, fmt, absMagnitude)=> `<div style="min-width:220px;flex:1;">
     <div style="font-size:10.5px;font-weight:700;color:#9B93C4;margin-bottom:6px;text-transform:uppercase;">${title}</div>
-    ${list.length ? list.map((r,i)=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid #2A2650;"><span>${i+1}. ${faEsc(r.label)}</span><span class="mono">${fmt(r[key])}</span></div>`).join('') : `<div style="font-size:11px;color:#726C9C;">-</div>`}
+    ${list.length ? list.map((r,i)=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid #2A2650;"><span>${i+1}. ${faEsc(r.label)}</span><span class="mono">${fmt(absMagnitude?Math.abs(r[key]):r[key])}</span></div>`).join('') : `<div style="font-size:11px;color:#726C9C;">-</div>`}
   </div>`;
-  const rankings = `<div style="display:flex;flex-wrap:wrap;gap:20px;">
+  const modeNote = faOutletRankMode==='franchise'
+    ? 'Ranking uses Franchise P&L lens (revenue per-kanal Online tab, HPP Produk/Retur estimasi 60%/1.8%, OPEX dst tetap dari sheet Data).'
+    : 'Ranking uses recorded P&L (Data / buku besar apa adanya).';
+  const rankings = `<div style="font-size:11px;color:#726C9C;margin-bottom:14px;">${modeNote}</div>
+  <div style="display:flex;flex-wrap:wrap;gap:20px;">
     ${rankBlock('Highest Revenue', rk.highestRevenue, 'revenue', fmtRp)}
     ${rankBlock('Highest Net Profit', rk.highestNetProfit, 'netProfit', fmtRp)}
     ${rankBlock('Highest Net Margin', rk.highestNetMargin, 'netMarginPct', v=>truncFixed(v,1)+'%')}
     ${rankBlock('Highest Growth', rk.highestGrowth, 'growthPct', v=>fmtPct(v))}
-    ${rankBlock('Biggest Improvement', rk.biggestImprovement, 'netMarginDeltaVs3mo', v=>truncFixed(v,1)+'pp')}
-    ${rankBlock('Biggest Decline', rk.biggestDecline, 'netMarginDeltaVs3mo', v=>truncFixed(v,1)+'pp')}
+    ${rankBlock('Biggest Improvement', rk.biggestImprovement, 'marginChangePct', v=>(v>=0?'+':'')+truncFixed(v,1)+'pp')}
+    ${rankBlock('Biggest Decline', rk.biggestDecline, 'marginChangePct', v=>truncFixed(v,1)+'pp decline', true)}
     ${rankBlock('Highest Expense Ratio', rk.highestExpenseRatio, 'opexRatioPct', v=>truncFixed(v,1)+'%')}
     ${rankBlock('Lowest Profitability', rk.lowestProfitability, 'netMarginPct', v=>truncFixed(v,1)+'%')}
   </div>`;
-  return faRenderReconciliation(ctx) + faCard('Outlet Performance', table) + faCard('Outlet Ranking (Top 5)', rankings);
+  return faRenderReconciliation(ctx) + faCard('Outlet Performance', table) + faCard('Outlet Ranking (Top 5)', rankings, rankModeToggle);
 }
 
 /* ---- Forecast tab ---- */
