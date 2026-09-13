@@ -3850,6 +3850,11 @@ function renderSplitMoM(){
 // baris di bawah HPP (Opex, Laba Operasional, dst) tetap dari sheet Data,
 // TIDAK diubah.
 const FRANCHISE_HPP_RATE_V2 = 0.60;
+// HPP Retur = 60% x (3% x (Pendapatan Offline + Pendapatan Online Harga
+// Normal)) = 1.8% dari basis yg SAMA persis dgn HPP Produk (bukan dari
+// Total Pendapatan gabungan -- Adjustment Harga & Konsinyasi TETAP tak
+// disentuh, sesuai instruksi user).
+const FRANCHISE_HPP_RETUR_RATE_V2 = FRANCHISE_HPP_RATE_V2 * 0.03; // = 0.018
 function computeFranchiseOutlet(outletKey, idxList){
   const entityName = ENTITY_KEY_MAP[outletKey] || UNIT_DATA[outletKey].label;
   const u = UNIT_DATA[outletKey];
@@ -3871,10 +3876,11 @@ function computeFranchiseOutlet(outletKey, idxList){
 
   const hppOffline = FRANCHISE_HPP_RATE_V2 * pendOffline;
   const hppOnline  = FRANCHISE_HPP_RATE_V2 * pendOnlineHN;
+  const hppRetur   = FRANCHISE_HPP_RETUR_RATE_V2 * (pendOffline + pendOnlineHN);
 
   const jumlahPendapatan = pendOffline + pendOnlineHN + pendOnlineAdj + pendKonsinyasi;
   const pendapatanBersih = jumlahPendapatan + diskonOnline + diskonOffline + komisiOnline;
-  const jumlahHpp = hppOffline + hppOnline + hppKonsinyasi + hppPembelianLangsung;
+  const jumlahHpp = hppOffline + hppOnline + hppRetur + hppKonsinyasi + hppPembelianLangsung;
   const labaKotor = pendapatanBersih - jumlahHpp;
 
   // Baris di bawah HPP TETAP dari sheet Data, tak diubah -- diambil langsung
@@ -3890,7 +3896,7 @@ function computeFranchiseOutlet(outletKey, idxList){
     hasOnlineData,
     pendOffline, pendOnlineHN, pendOnlineAdj, pendKonsinyasi, jumlahPendapatan,
     diskonOnline, diskonOffline, komisiOnline, pendapatanBersih,
-    hppOffline, hppOnline, hppKonsinyasi, hppPembelianLangsung, jumlahHpp,
+    hppOffline, hppOnline, hppRetur, hppKonsinyasi, hppPembelianLangsung, jumlahHpp,
     labaKotor, biayaOps, labaOperasional, biayaPenyusutan, biayaPajak, costOfMgmt, labaBersih,
   };
 }
@@ -3924,6 +3930,7 @@ function renderCabangFranchiseTable(outletKey, idxList, contextNote){
     ${row('Pendapatan Bersih', d.pendOnlineHN+d.pendOnlineAdj+d.diskonOnline+d.komisiOnline, d.pendOffline+d.diskonOffline, d.pendKonsinyasi, d.pendapatanBersih, {hl:true})}
     ${row('HPP Produk Online (60% × Hrg Normal)', -d.hppOnline, null, null, -d.hppOnline, {est:true})}
     ${row('HPP Produk Offline (60% × Pendapatan)', null, -d.hppOffline, null, -d.hppOffline, {est:true})}
+    ${row('HPP Retur (1.8% × Online Hrg Normal + Offline)', null, null, null, -d.hppRetur, {est:true})}
     ${row('HPP Konsinyasi', null, null, -d.hppKonsinyasi, -d.hppKonsinyasi)}
     ${d.hppPembelianLangsung ? row('HPP Pembelian Langsung', null, null, null, -d.hppPembelianLangsung) : ''}
     ${row('Laba Kotor', null, null, null, d.labaKotor, {hl:true})}
