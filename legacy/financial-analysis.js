@@ -1124,18 +1124,41 @@ function faOutletPerformance(pm){
  * DESCENDING) -- dibuang di atas, digantikan sepenuhnya oleh fungsi di bawah
  * (faRankRows di sini py arah yg benar & jadi SATU-SATUNYA sumber sort utk
  * panel Ranking, baik mode Biasa maupun Franchise). */
+// ===== Source-quality eligibility (upstream validation hook) =====
+// Kontrak MINIMAL, murni KONSUMSI (tak pernah menyimpulkan anomali scr
+// statistik): window.FA_DATA_QUALITY = { "YYYY-MM|outletKey": { status:
+// "OK"|"SOURCE_ANOMALY", reason, appliesTo:['biasa'|'franchise'] } }.
+// Kalau global ini tak ada sama sekali (upstream blm mengisi), SEMUA outlet
+// dianggap "OK" -- perilaku identik dgn sebelum patch ini, tak ada regresi.
+// `appliesTo` opsional; default HANYA 'biasa' (Franchise TIDAK otomatis
+// mewarisi anomali Biasa kecuali upstream eksplisit menandainya jg berlaku
+// utk Franchise -- lihat laporan).
+function faOutletDataQuality(outletKey, periodIdx, mode){
+  const store = (typeof window !== 'undefined' && window.FA_DATA_QUALITY)
+    || (typeof FA_DATA_QUALITY !== 'undefined' ? FA_DATA_QUALITY : null);
+  const fallback = { status:'OK', reason:null };
+  const period = PERIODS[periodIdx];
+  if (!store || !period) return fallback;
+  const entry = store[`${period}|${outletKey}`];
+  if (!entry || !entry.status) return fallback;
+  const appliesTo = Array.isArray(entry.appliesTo) ? entry.appliesTo : ['biasa'];
+  if (mode && !appliesTo.includes(mode)) return fallback;
+  return { status: entry.status, reason: entry.reason || null };
+}
 function faRankRows(rows, key, dir=-1){
   // dir=-1 (default) -> DESCENDING (nilai tertinggi dulu, utk "Highest ...").
   // dir=1 -> ASCENDING (nilai terendah/paling negatif dulu, utk "Lowest
   // Profitability" & "Biggest Decline").
-  return rows.filter(r=>r.status!=='NO_DATA' && r[key]!=null).sort((a,b)=>dir*(a[key]-b[key])).slice(0,5);
+  // analysisEligible SUDAH mencakup NO_DATA & SOURCE_ANOMALY (lihat
+  // faOutletRankingRowsBiasa/Franchise) -- satu filter, tak ada logika ganda.
+  return rows.filter(r=>r.analysisEligible && r[key]!=null).sort((a,b)=>dir*(a[key]-b[key])).slice(0,5);
 }
 // Sama spt faRankRows, TAPI dgn predicate tambahan SEBELUM slice(0,5) --
 // dipakai utk kategori yg semantiknya HARUS satu arah saja (mis. "Growth
 // Leaders" TIDAK boleh berisi outlet yg justru turun) -- kalau yg lolos
 // predicate < 5, TETAP tampil apa adanya (tak dipaksa genap 5).
 function faRankRowsFiltered(rows, key, dir, predicate){
-  return rows.filter(r=>r.status!=='NO_DATA' && r[key]!=null && predicate(r[key])).sort((a,b)=>dir*(a[key]-b[key])).slice(0,5);
+  return rows.filter(r=>r.analysisEligible && r[key]!=null && predicate(r[key])).sort((a,b)=>dir*(a[key]-b[key])).slice(0,5);
 }
 function faBuildOutletRankings(rows){
   return {
@@ -1178,7 +1201,9 @@ function faOutletRankingRowsBiasa(pm){
     const status = (revenue==null && netProfit==null) ? 'NO_DATA' : 'OK';
     const payroll = faPayrollAt(u, curIdx);
     const payrollRatioPct = (revenue && payroll!=null) ? payroll/revenue*100 : null;
-    return { key:k, label:u.label, revenue, netProfit, netMarginPct, opexRatioPct, grossMarginPct:kpi.grossMarginPct, payrollRatioPct, growthPct, marginChangePct, status };
+    const dq = faOutletDataQuality(k, curIdx, 'biasa');
+    const analysisEligible = status!=='NO_DATA' && dq.status!=='SOURCE_ANOMALY';
+    return { key:k, label:u.label, revenue, netProfit, netMarginPct, opexRatioPct, grossMarginPct:kpi.grossMarginPct, payrollRatioPct, growthPct, marginChangePct, status, dataQualityStatus:dq.status, dataQualityReason:dq.reason, analysisEligible };
   });
   return { rows, rankings: faBuildOutletRankings(rows) };
 }
@@ -1192,7 +1217,8 @@ function faOutletRankingRowsFranchise(pm){
   const curIdx = pm.idx;
   const rows = OUTLET_KEYS.map(k=>{
     const d = computeFranchiseOutlet(k, [curIdx]);
-    if (!d.hasOnlineData) return { key:k, label:UNIT_DATA[k].label, revenue:null, netProfit:null, netMarginPct:null, opexRatioPct:null, grossMarginPct:null, payrollRatioPct:null, growthPct:null, marginChangePct:null, status:'NO_DATA' };
+    const dqNoData = faOutletDataQuality(k, curIdx, 'franchise');
+    if (!d.hasOnlineData) return { key:k, label:UNIT_DATA[k].label, revenue:null, netProfit:null, netMarginPct:null, opexRatioPct:null, grossMarginPct:null, payrollRatioPct:null, growthPct:null, marginChangePct:null, status:'NO_DATA', dataQualityStatus:dqNoData.status, dataQualityReason:dqNoData.reason, analysisEligible:false };
     const revenue = d.jumlahPendapatan, netProfit = d.labaBersih;
     const netMarginPct = revenue ? netProfit/revenue*100 : null;
     const opexRatioPct = revenue ? d.biayaOps/revenue*100 : null;
@@ -1207,7 +1233,12 @@ function faOutletRankingRowsFranchise(pm){
       const prevMarginPct = dPrev.labaBersih/dPrev.jumlahPendapatan*100;
       marginChangePct = netMarginPct!=null ? netMarginPct-prevMarginPct : null;
     }
-    return { key:k, label:UNIT_DATA[k].label, revenue, netProfit, netMarginPct, opexRatioPct, grossMarginPct, payrollRatioPct, growthPct, marginChangePct, status:'OK' };
+    // Franchise TIDAK otomatis mewarisi anomali Biasa -- faOutletDataQuality(
+    // ...,'franchise') hanya mengembalikan SOURCE_ANOMALY kalau upstream
+    // eksplisit menandai entry.appliesTo mencakup 'franchise'.
+    const dq = faOutletDataQuality(k, curIdx, 'franchise');
+    const analysisEligible = dq.status!=='SOURCE_ANOMALY';
+    return { key:k, label:UNIT_DATA[k].label, revenue, netProfit, netMarginPct, opexRatioPct, grossMarginPct, payrollRatioPct, growthPct, marginChangePct, status:'OK', dataQualityStatus:dq.status, dataQualityReason:dq.reason, analysisEligible };
   });
   return { rows, rankings: faBuildOutletRankings(rows) };
 }
@@ -1240,7 +1271,10 @@ function faClassifyPerformanceRow(row, allRows){
 // lintas outlet utk ringkasan manajemen & konteks ranking. NO_DATA
 // dikeluarkan dari SEMUA agregat (bukan dianggap nol).
 function faNetworkAggregate(rows){
-  const ok = rows.filter(r=>r.status!=='NO_DATA');
+  // analysisEligible mengeluarkan NO_DATA *dan* SOURCE_ANOMALY (kalau
+  // upstream FA_DATA_QUALITY menandainya) dari SEMUA agregat -- weighted
+  // margin, growing/declining, highest/lowest margin, dst.
+  const ok = rows.filter(r=>r.analysisEligible);
   const growing = ok.filter(r=>r.growthPct!=null && r.growthPct>0);
   const declining = ok.filter(r=>r.growthPct!=null && r.growthPct<0);
   const lossMaking = ok.filter(r=>r.netProfit!=null && r.netProfit<0);
@@ -2063,8 +2097,17 @@ function faRenderOutletPerformanceTableBiasa(ctx){
   const medianOpex = faMedian(rows.map(r=>r.opexRatioPct));
   const tr = rows.map(r=>{
     const noData = r.classification==='NO DATA';
+    // Lookup KUALITAS SUMBER read-only (faOutletPerformance() TIDAK
+    // disentuh) -- kalau upstream FA_DATA_QUALITY menandai outlet-periode
+    // ini SOURCE_ANOMALY, baris TETAP tampil dgn angka apa adanya, badge
+    // Status diganti "SOURCE ANOMALY" (bukan classification biasa).
+    const dq = faOutletDataQuality(r.key, ctx.pm.idx, 'biasa');
+    const isAnomaly = dq.status==='SOURCE_ANOMALY';
     const rowStyle = noData ? 'opacity:.5;' : '';
     const opexHi = faOpexHighlight(r.opexRatioPct, medianOpex);
+    const statusBadge = isAnomaly
+      ? `<span style="background:#FF9F4322;color:#FF9F43;border:1px solid #FF9F43;border-radius:8px;padding:2px 8px;font-size:10.5px;font-weight:700;" title="${faEsc(dq.reason||'Source anomaly flagged upstream — excluded from Management Snapshot/ranking.')}">SOURCE ANOMALY</span>`
+      : `<span style="background:${faClassColor(r.classification)}22;color:${faClassColor(r.classification)};border:1px solid ${faClassColor(r.classification)};border-radius:8px;padding:2px 8px;font-size:10.5px;font-weight:700;">${r.classification}</span>`;
     return `<tr style="${rowStyle}">
       <td style="padding:10px 14px;font-size:12.5px;">${faEsc(r.label)}</td>
       <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${fmtRp(r.revenue)}</td>
@@ -2076,7 +2119,7 @@ function faRenderOutletPerformanceTableBiasa(ctx){
       <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;color:${faNetMarginColor(r.netMarginPct, medianMargin)};">${r.netMarginPct!=null?truncFixed(r.netMarginPct,1)+'%':'-'}</td>
       <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${r.contributionPct!=null?truncFixed(r.contributionPct,1)+'%':'-'}</td>
       <td style="padding:10px 14px;font-size:11.5px;">${r.trend}</td>
-      <td style="padding:10px 14px;text-align:center;"><span style="background:${faClassColor(r.classification)}22;color:${faClassColor(r.classification)};border:1px solid ${faClassColor(r.classification)};border-radius:8px;padding:2px 8px;font-size:10.5px;font-weight:700;">${r.classification}</span></td>
+      <td style="padding:10px 14px;text-align:center;">${statusBadge}</td>
     </tr>`;
   }).join('');
   return `<div class="tbl-wrap"><table><thead><tr>
@@ -2095,9 +2138,13 @@ function faRenderOutletPerformanceTableFranchise(ctx){
   const medianMargin = faMedian(allRows.map(r=>r.netMarginPct));
   const medianOpex = faMedian(allRows.map(r=>r.opexRatioPct));
   const tr = rows.map(r=>{
+    const isAnomaly = r.dataQualityStatus==='SOURCE_ANOMALY';
     const cls = faClassifyPerformanceRow(r, allRows);
     const noData = r.status==='NO_DATA';
     const opexHi = faOpexHighlight(r.opexRatioPct, medianOpex);
+    const statusBadge = isAnomaly
+      ? `<span style="background:#FF9F4322;color:#FF9F43;border:1px solid #FF9F43;border-radius:8px;padding:2px 8px;font-size:10.5px;font-weight:700;" title="${faEsc(r.dataQualityReason||'Source anomaly flagged upstream — excluded from Management Snapshot/ranking.')}">SOURCE ANOMALY</span>`
+      : `<span style="background:${faClassColor(cls)}22;color:${faClassColor(cls)};border:1px solid ${faClassColor(cls)};border-radius:8px;padding:2px 8px;font-size:10.5px;font-weight:700;">${cls}</span>`;
     return `<tr style="${noData?'opacity:.5;':''}">
       <td style="padding:10px 14px;font-size:12.5px;">${faEsc(r.label)}</td>
       <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${r.revenue!=null?fmtRp(r.revenue):'-'}</td>
@@ -2107,7 +2154,7 @@ function faRenderOutletPerformanceTableFranchise(ctx){
       <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${r.payrollRatioPct!=null?truncFixed(r.payrollRatioPct,1)+'%':'-'}</td>
       <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;color:${faNetProfitColor(r.netProfit)};">${r.netProfit!=null?fmtRp(r.netProfit):'-'}</td>
       <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;color:${faNetMarginColor(r.netMarginPct, medianMargin)};">${r.netMarginPct!=null?truncFixed(r.netMarginPct,1)+'%':'-'}</td>
-      <td style="padding:10px 14px;text-align:center;"><span style="background:${faClassColor(cls)}22;color:${faClassColor(cls)};border:1px solid ${faClassColor(cls)};border-radius:8px;padding:2px 8px;font-size:10.5px;font-weight:700;">${cls}</span></td>
+      <td style="padding:10px 14px;text-align:center;">${statusBadge}</td>
     </tr>`;
   }).join('');
   // Section 10: penjelasan Franchise dipadatkan jadi chip + info icon
