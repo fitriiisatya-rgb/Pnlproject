@@ -845,19 +845,28 @@ function faBuildOutletRankings(rows){
     lowestProfitability: faRankRows(rows,'netMarginPct', 1),
   };
 }
+// "Previous AVAILABLE month" -- scan MUNDUR dari curIdx-1 sampai idx 0,
+// berhenti di kandidat PERTAMA (= paling dekat ke curIdx) yg lolos isAvailable
+// utk mode ybs. Loop selalu i<curIdx (curIdx-1, curIdx-2, ...0) shg TAK PERNAH
+// lompat ke periode MASA DEPAN. Kalau tak ada satu pun bulan lolos, return
+// null (growth/marginChange TETAP null, bukan dipaksa bandingkan ke NO_DATA).
+function faFindPrevAvailableIdx(curIdx, isAvailable){
+  for (let i=curIdx-1; i>=0; i--){ if (isAvailable(i)) return i; }
+  return null;
+}
 // Mode BIASA -- basis sama persis dgn faOutletPerformance (faKPISet dari
-// Data/UNIT_DATA), HANYA beda di marginChangePct (vs bulan sebelumnya, bukan
-// rata2 3 bulan). "Previous available month" = curIdx-1 kalau ADA datanya
-// (sama spt growthPct yg sudah ada di faOutletPerformance) -- TIDAK
-// scan mundur beberapa bulan kalau bulan tepat sebelumnya kosong.
+// Data/UNIT_DATA), HANYA beda di marginChangePct (vs bulan sebelumnya YG
+// PUNYA DATA, bukan rata2 3 bulan). "Tersedia" utk mode Biasa = bulan itu
+// py Revenue/P&L (kpi.revenue != null) -- bulan NO_DATA di antaranya dilompati.
 function faOutletRankingRowsBiasa(pm){
-  const curIdx = pm.idx, prevIdx = curIdx-1;
+  const curIdx = pm.idx;
   const rows = OUTLET_KEYS.map(k=>{
     const u = UNIT_DATA[k];
     const kpi = faKPISet(u, k, curIdx);
-    const kpiPrev = prevIdx>=0 ? faKPISet(u, k, prevIdx) : null;
     const revenue = kpi.revenue, netProfit = kpi.netProfit;
     const netMarginPct = kpi.netMarginPct, opexRatioPct = kpi.opexRatioPct;
+    const prevIdx = faFindPrevAvailableIdx(curIdx, i => faKPISet(u, k, i).revenue != null);
+    const kpiPrev = prevIdx!=null ? faKPISet(u, k, prevIdx) : null;
     const growthPct = (revenue!=null && kpiPrev && kpiPrev.revenue) ? (revenue-kpiPrev.revenue)/Math.abs(kpiPrev.revenue)*100 : null;
     const marginChangePct = (netMarginPct!=null && kpiPrev && kpiPrev.netMarginPct!=null) ? netMarginPct-kpiPrev.netMarginPct : null;
     const status = (revenue==null && netProfit==null) ? 'NO_DATA' : 'OK';
@@ -867,23 +876,23 @@ function faOutletRankingRowsBiasa(pm){
 }
 // Mode FRANCHISE -- basis computeFranchiseOutlet() (index.php), SAMA
 // formula yg sudah dipakai panel Franchise & Sanding Biasa vs Franchise,
-// tidak ada logika finansial baru diciptakan di sini.
+// tidak ada logika finansial baru diciptakan di sini. "Tersedia" = hasOnlineData
+// && jumlahPendapatan != 0 (bulan tanpa data Online ATAU nol dilompati).
 function faOutletRankingRowsFranchise(pm){
-  const curIdx = pm.idx, prevIdx = curIdx-1;
+  const curIdx = pm.idx;
   const rows = OUTLET_KEYS.map(k=>{
     const d = computeFranchiseOutlet(k, [curIdx]);
     if (!d.hasOnlineData) return { key:k, label:UNIT_DATA[k].label, revenue:null, netProfit:null, netMarginPct:null, opexRatioPct:null, growthPct:null, marginChangePct:null, status:'NO_DATA' };
     const revenue = d.jumlahPendapatan, netProfit = d.labaBersih;
     const netMarginPct = revenue ? netProfit/revenue*100 : null;
     const opexRatioPct = revenue ? d.biayaOps/revenue*100 : null;
+    const prevIdx = faFindPrevAvailableIdx(curIdx, i => { const dp = computeFranchiseOutlet(k, [i]); return dp.hasOnlineData && dp.jumlahPendapatan != 0; });
     let growthPct = null, marginChangePct = null;
-    if (prevIdx>=0){
+    if (prevIdx!=null){
       const dPrev = computeFranchiseOutlet(k, [prevIdx]);
-      if (dPrev.hasOnlineData && dPrev.jumlahPendapatan){
-        growthPct = (revenue-dPrev.jumlahPendapatan)/Math.abs(dPrev.jumlahPendapatan)*100;
-        const prevMarginPct = dPrev.jumlahPendapatan ? dPrev.labaBersih/dPrev.jumlahPendapatan*100 : null;
-        if (prevMarginPct!=null && netMarginPct!=null) marginChangePct = netMarginPct-prevMarginPct;
-      }
+      growthPct = (revenue-dPrev.jumlahPendapatan)/Math.abs(dPrev.jumlahPendapatan)*100;
+      const prevMarginPct = dPrev.labaBersih/dPrev.jumlahPendapatan*100;
+      marginChangePct = netMarginPct!=null ? netMarginPct-prevMarginPct : null;
     }
     return { key:k, label:UNIT_DATA[k].label, revenue, netProfit, netMarginPct, opexRatioPct, growthPct, marginChangePct, status:'OK' };
   });
