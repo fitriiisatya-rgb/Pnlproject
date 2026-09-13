@@ -281,6 +281,16 @@ function faPayrollAvg(u, idxs){
   const nums = perIdx.filter(v=>v!=null);
   return nums.length ? nums.reduce((s,v)=>s+v,0)/nums.length : null;
 }
+// SUM (bukan average) lintas idxList -- dipakai Margin Leakage Strip supaya
+// konsisten dgn cara `cur.revenue`/`cur.opex` dkk dijumlah (faSum), bukan
+// dirata2.
+function faPayrollSum(u, idxList){
+  const opexRow = u.waterfall.find(r=>r.name==='Biaya Operasional');
+  if (!opexRow) return null;
+  let total = null;
+  idxList.forEach(i=>{ const v = faPayrollAt(u,i); if (v!=null) total = (total||0)+v; });
+  return total;
+}
 
 function faMovingAvgSeries(values, window){
   return values.map((_,i)=>{
@@ -724,49 +734,257 @@ function faFinancialHealthScore(u, unitKey, pm, ctx){
   return { score: finalScore, status, dims };
 }
 
-// ===== Group Reconciliation (poin 2 QA review) =====
-// Konsolidasi (Group) BUKAN sekadar penjumlahan 14 outlet fisik -- ada
-// Manufaktur, Head Office, channel Online/Franchise, dan biaya bersama
-// (Penyusutan/Pajak/Bunga/Cost of Management) yg SAH secara akuntansi tidak
-// dialokasikan ke outlet manapun. Fungsi ini menghitung selisihnya secara
-// eksplisit dan jujur -- BUKAN didiamkan, BUKAN didistribusikan diam2 ke
-// outlet -- supaya management tahu persis berapa besar "Corporate / Shared
-// Cost" yg berada di luar P&L per-outlet.
-function faGroupReconciliation(pm){
-  const idx = pm.idx;
-  const group = UNIT_DATA.konsolidasi;
-  // BUG (ditemukan via review konsistensi laporan validasi data real): gap
-  // SEBELUMNYA diberi SATU label generik "Corporate / Shared Cost" utk
-  // SEMUA baris termasuk Revenue -- itu keliru, selisih Revenue BUKAN biaya.
-  // Tiap metrik sekarang punya `gapNature` sendiri sesuai sifat aslinya:
-  // Revenue = pendapatan non-outlet (BUKAN biaya); OPEX = memang biaya
-  // korporat/bersama; Gross Profit & Net Profit = KONTRIBUSI campuran
-  // (sebagian dari revenue non-outlet, sebagian dari biaya bersama) --
-  // tidak dilabeli "cost" murni krn tidak akurat, dan komponen persisnya
-  // (Manufaktur vs Head Office vs Ownership vs eliminasi intercompany)
-  // TIDAK dirinci di sini krn tidak bisa diverifikasi tanpa analisis
-  // Counterparty per baris (di luar cakupan fitur ini) -- jangan mengarang
-  // alokasi yg tak didukung data.
-  const metrics = [
-    { key:'revenue', label:'Revenue', row:'Pendapatan',
-      gapNature:'Non-Outlet Revenue (Manufaktur, Head Office, Ownership, channel lain di luar 14 outlet fisik -- BUKAN biaya)' },
-    { key:'grossProfit', label:'Gross Profit', row:'Laba Kotor',
-      gapNature:'Kontribusi Non-Outlet (campuran revenue non-outlet & HPP-nya, bukan murni biaya)' },
-    { key:'opex', label:'OPEX', row:'Biaya Operasional',
-      gapNature:'Corporate / Shared Cost (Head Office, biaya operasional bersama di luar 14 outlet)' },
-    { key:'netProfit', label:'Net Profit', row:'Laba Bersih',
-      gapNature:'Kontribusi Non-Outlet (campuran revenue non-outlet & biaya korporat/bersama, bukan murni biaya)' },
-  ];
-  return metrics.map(m=>{
-    const groupVal = (faLine(group, m.row)||[])[idx];
-    let outletSum = null, anyOutlet = false;
-    OUTLET_KEYS.forEach(k=>{
-      const v = (faLine(UNIT_DATA[k], m.row)||[])[idx];
-      if (v!=null){ outletSum = (outletSum||0) + v; anyOutlet = true; }
-    });
-    const gap = (groupVal!=null && anyOutlet) ? groupVal - outletSum : null;
-    return { key:m.key, label:m.label, groupVal, outletSum: anyOutlet?outletSum:null, gap, gapNature:m.gapNature };
+// ===== Performance Driver Analysis (menggantikan Group Reconciliation) =====
+// Menjawab "kenapa Net Profit berubah", mode-aware (Biasa/Franchise), dari
+// data yg SUDAH ADA -- tidak ada formula finansial baru, murni dekomposisi +
+// perbandingan periode dari baris/computeFranchiseOutlet yg sudah ada.
+
+// "Tersedia" (previous available month/range) -- reuse faFindPrevAvailableIdx
+// utk single-month; utk multi-month, blok PERSIS sebelum range terpilih
+// (BUKAN scan mundur cari blok lain) -- kalau blok itu ADA bulan yg gagal
+// availability check, TIDAK ADA pembanding sama sekali (section 9: hanya
+// "immediately preceding range", bukan cari kandidat lain).
+function faFindComparisonIndices(currentIndices, isAvailable){
+  const sorted = [...currentIndices].sort((a,b)=>a-b);
+  if (sorted.length === 1){
+    const prevIdx = faFindPrevAvailableIdx(sorted[0], isAvailable);
+    return prevIdx!=null ? [prevIdx] : null;
+  }
+  const n = sorted.length, first = sorted[0];
+  const block = []; for (let i=first-n;i<first;i++) block.push(i);
+  if (block.some(i=>i<0)) return null;
+  if (!block.every(i=>isAvailable(i))) return null;
+  return block;
+}
+
+// Basis BIASA -- baris Konsolidasi apa adanya (faLine), level bucket KASAR
+// sesuai spek (Revenue/Discount/HPP/OPEX/Depreciation/Tax/CostMgmt/NetProfit),
+// BUKAN dipecah per kategori Opex/per outlet spt faProfitDrivers (kartu Expense
+// yg SUDAH ADA, TIDAK disentuh -- ini kartu BARU/terpisah).
+function faPerformanceDriverBasisBiasa(idxList){
+  const u = UNIT_DATA.konsolidasi;
+  const sum = (name) => { const arr = faLine(u,name); return arr ? faSum(arr, idxList) : null; };
+  const revenue = sum('Pendapatan'), discount = sum('Diskon'), hpp = sum(faHppRowName('konsolidasi')),
+        grossProfit = sum('Laba Kotor'), opex = sum('Biaya Operasional'), depreciation = sum('Biaya Penyusutan'),
+        tax = sum('Biaya Pajak'), costMgmt = sum('Cost of Management'), netProfit = sum('Laba Bersih'),
+        // "Bunga" (interest) ADA sbg baris waterfall nyata (mis. Konsolidasi/
+        // Manufaktur) tp TAK disebut di daftar bucket spek -- ditemukan lewat
+        // verifikasi bridge thd data real (residual material sblm ini
+        // ditambahkan). Dimasukkan sbg bucket ke-8 spy bridge rekonsiliasi
+        // PERSIS, bukan dibiarkan jadi "residual" tiap kali entity itu py
+        // biaya bunga.
+        interest = sum('Bunga');
+  if (revenue==null && netProfit==null) return null;
+  const netRevenue = (revenue!=null && discount!=null) ? revenue+discount : null;
+  return { revenue, discount, netRevenue, hpp, grossProfit, opex, depreciation, tax, costMgmt, interest, netProfit };
+}
+// Basis FRANCHISE -- SUM computeFranchiseOutlet() lintas 14 outlet (outlet
+// tanpa hasOnlineData periode itu TIDAK ikut dijumlah, bukan dianggap nol).
+// HPP dipecah 5 komponen (Online/Offline/Retur/Konsinyasi/Pembelian Langsung)
+// sesuai section 11 -- semua diambil LANGSUNG dari computeFranchiseOutlet(),
+// tak ada rumus baru.
+function faPerformanceDriverBasisFranchise(idxList){
+  const acc = { revenue:0, discount:0, hppOnline:0, hppOffline:0, hppRetur:0, hppKonsinyasi:0, hppPembelianLangsung:0, grossProfit:0, opex:0, depreciation:0, tax:0, costMgmt:0, netProfit:0 };
+  let any = false; const includedKeys = [];
+  OUTLET_KEYS.forEach(k=>{
+    const d = computeFranchiseOutlet(k, idxList);
+    if (!d.hasOnlineData) return;
+    any = true; includedKeys.push(k);
+    acc.revenue += d.jumlahPendapatan;
+    acc.discount += (d.diskonOnline + d.diskonOffline + d.komisiOnline);
+    acc.hppOnline += d.hppOnline; acc.hppOffline += d.hppOffline; acc.hppRetur += d.hppRetur;
+    acc.hppKonsinyasi += d.hppKonsinyasi; acc.hppPembelianLangsung += d.hppPembelianLangsung;
+    acc.grossProfit += d.labaKotor; acc.opex += d.biayaOps; acc.depreciation += d.biayaPenyusutan;
+    acc.tax += d.biayaPajak; acc.costMgmt += d.costOfMgmt; acc.netProfit += d.labaBersih;
   });
+  if (!any) return null;
+  const hpp = acc.hppOnline + acc.hppOffline + acc.hppRetur + acc.hppKonsinyasi + acc.hppPembelianLangsung;
+  const netRevenue = acc.revenue + acc.discount;
+  return { revenue:acc.revenue, discount:acc.discount, netRevenue,
+    hppOnline:acc.hppOnline, hppOffline:acc.hppOffline, hppRetur:acc.hppRetur, hppKonsinyasi:acc.hppKonsinyasi, hppPembelianLangsung:acc.hppPembelianLangsung, hpp,
+    grossProfit:acc.grossProfit, opex:acc.opex, depreciation:acc.depreciation, tax:acc.tax, costMgmt:acc.costMgmt, netProfit:acc.netProfit, includedKeys };
+}
+
+// Bridge: Previous Net Profit + Sum(driver impacts) = Current Net Profit.
+// Sign convention (section 12): Revenue & Discount (SUDAH negatif di data)
+// dipakai LANGSUNG (delta positif = bantu profit); HPP/OPEX/Depreciation/
+// Tax/CostMgmt dibalik (isCost=true, kenaikan = impact negatif).
+function faBuildDriverBridge(cur, prev){
+  if (!cur || !prev) return null;
+  const drivers = [];
+  const add = (name, curVal, prevVal, isCost) => {
+    if (curVal==null || prevVal==null) return;
+    const delta = curVal - prevVal;
+    const impact = isCost ? -delta : delta;
+    drivers.push({ name, curVal, prevVal, delta, impact });
+  };
+  add('Revenue', cur.revenue, prev.revenue, false);
+  add('Discount / Commission', cur.discount, prev.discount, false);
+  if (cur.hppOnline !== undefined) { // Franchise -- 5 komponen HPP terpisah
+    add('HPP Produk Online', cur.hppOnline, prev.hppOnline, true);
+    add('HPP Produk Offline', cur.hppOffline, prev.hppOffline, true);
+    add('HPP Retur', cur.hppRetur, prev.hppRetur, true);
+    add('HPP Konsinyasi', cur.hppKonsinyasi, prev.hppKonsinyasi, true);
+    add('HPP Pembelian Langsung', cur.hppPembelianLangsung, prev.hppPembelianLangsung, true);
+  } else {
+    add('HPP', cur.hpp, prev.hpp, true);
+  }
+  add('OPEX', cur.opex, prev.opex, true);
+  add('Depreciation', cur.depreciation, prev.depreciation, true);
+  add('Tax', cur.tax, prev.tax, true);
+  add('Cost of Management', cur.costMgmt, prev.costMgmt, true);
+  add('Interest (Bunga)', cur.interest, prev.interest, true);
+
+  const deltaNetProfit = (cur.netProfit!=null && prev.netProfit!=null) ? cur.netProfit-prev.netProfit : null;
+  const explainedBeforeResidual = drivers.reduce((s,d)=>s+d.impact,0);
+  const residual = deltaNetProfit!=null ? deltaNetProfit-explainedBeforeResidual : null;
+  let reconciliationIssue = false;
+  if (residual!=null && Math.abs(residual) > FA_CONFIG.reconciliation_tolerance_amount){
+    const isMaterial = Math.abs(residual) >= FA_CONFIG.minimum_materiality_amount;
+    reconciliationIssue = isMaterial;
+    drivers.push({ name: isMaterial ? '⚠️ Unexplained Residual (calculation issue)' : 'Other / Rounding', curVal:null, prevVal:null, delta:null, impact:residual });
+  }
+  const totalShown = drivers.reduce((s,d)=>s+d.impact,0);
+  const positive = drivers.filter(d=>d.impact>0).sort((a,b)=>b.impact-a.impact);
+  const negative = drivers.filter(d=>d.impact<0).sort((a,b)=>a.impact-b.impact);
+  return { drivers, positive, negative, deltaNetProfit, totalShown, reconciliationIssue,
+    curNetProfit:cur.netProfit, prevNetProfit:prev.netProfit,
+    curNetMarginPct: cur.revenue ? cur.netProfit/cur.revenue*100 : null,
+    prevNetMarginPct: prev.revenue ? prev.netProfit/prev.revenue*100 : null };
+}
+
+// Top-level: cari basis + comparison range sesuai mode, bangun bridge.
+// currentIndices = ctx.indices (Period Filter aktif, bisa 1 atau banyak bulan).
+function faPerformanceDriverAnalysis(currentIndices, mode){
+  const basisFn = mode==='franchise' ? faPerformanceDriverBasisFranchise : faPerformanceDriverBasisBiasa;
+  const isAvailable = i => basisFn([i]) !== null;
+  const cur = basisFn(currentIndices);
+  if (!cur) return { available:false, noCurrentData:true };
+  const cmpIndices = faFindComparisonIndices(currentIndices, isAvailable);
+  if (!cmpIndices) return { available:false, cur, noComparableRange:true };
+  const prev = basisFn(cmpIndices);
+  if (!prev) return { available:false, cur, noComparableRange:true };
+  return { available:true, cur, prev, cmpIndices, bridge: faBuildDriverBridge(cur, prev) };
+}
+
+// Insight deterministik (section 16) -- HANYA dari driver yg sudah dihitung,
+// tanpa AI/tebakan. Identifikasi driver negatif terbesar & driver positif
+// terbesar (kalau ada), format singkat.
+function faDriverInsightText(bridge){
+  if (!bridge || bridge.deltaNetProfit==null) return 'Data belum cukup untuk membangun insight periode ini.';
+  const d = bridge.deltaNetProfit;
+  const pct = bridge.prevNetProfit ? d/Math.abs(bridge.prevNetProfit)*100 : null;
+  const dirText = d>=0 ? 'meningkat' : 'menurun';
+  const topNeg = bridge.negative.find(x=>x.name.indexOf('Residual')===-1) || bridge.negative[0];
+  const topPos = bridge.positive.find(x=>x.name.indexOf('Residual')===-1) || bridge.positive[0];
+  let s = `Net Profit ${dirText} ${fmtRp(Math.abs(d))}${pct!=null?` (${pct>=0?'+':''}${truncFixed(pct,1)}%)`:''}.`;
+  if (d < 0) {
+    if (topNeg) s += ` Main driver: ${topNeg.name} (${fmtRp(topNeg.impact)}).`;
+    if (topPos) s += ` ${topPos.name} partially offset the decline (+${fmtRp(topPos.impact)}).`;
+  } else {
+    if (topPos) s += ` Main driver: ${topPos.name} (+${fmtRp(topPos.impact)}).`;
+    if (topNeg) s += ` ${topNeg.name} partially offset the improvement (${fmtRp(topNeg.impact)}).`;
+  }
+  return s;
+}
+
+// Margin Leakage Strip (section 17) -- Revenue=100%, lalu % tiap komponen
+// thd Revenue. Payroll INFORMASIONAL saja (subset OPEX, tidak ikut dijumlah
+// ke 100%, dilabeli jelas supaya tak dikira double-count).
+function faRenderMarginLeakageStrip(cur, mode, idxList){
+  if (!cur || !cur.revenue) return '';
+  const rev = cur.revenue;
+  const discountPct = cur.discount!=null ? Math.abs(cur.discount)/rev*100 : null;
+  const hppPct = cur.hpp!=null ? cur.hpp/rev*100 : null;
+  const opexPct = cur.opex!=null ? cur.opex/rev*100 : null;
+  const depPct = cur.depreciation!=null ? cur.depreciation/rev*100 : null;
+  const taxPct = cur.tax!=null ? cur.tax/rev*100 : null;
+  const cmPct = cur.costMgmt!=null ? cur.costMgmt/rev*100 : null;
+  const interestPct = cur.interest!=null ? cur.interest/rev*100 : null;
+  const netMarginPct = cur.netProfit!=null ? cur.netProfit/rev*100 : null;
+  // Payroll INFORMASIONAL saja -- subset dari OPEX (Gaji+Insentif), TIDAK
+  // ikut dijumlah ke breakdown 100% supaya tak double-count.
+  const payroll = mode==='franchise'
+    ? (cur.includedKeys||[]).reduce((s,k)=>{ const v = faPayrollSum(UNIT_DATA[k], idxList); return v!=null ? (s||0)+v : s; }, null)
+    : faPayrollSum(UNIT_DATA.konsolidasi, idxList);
+  const payrollPct = (payroll!=null && rev) ? payroll/rev*100 : null;
+  const chip = (label, pct, color, note)=> pct==null ? '' : `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:5px 10px;background:#1C1840;border-radius:6px;"><span style="color:#9B93C4;">${label}${note?` <span style="color:#726C9C;font-size:9.5px;">${note}</span>`:''}</span><span class="mono" style="color:${color||'#C9C3E8'};font-weight:700;">${truncFixed(pct,1)}%</span></div>`;
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px;margin-top:10px;">
+    ${chip('Revenue', 100, '#4FC3F7')}
+    ${chip('Discount/Commission', discountPct, '#FB7185')}
+    ${chip('HPP', hppPct, '#FB7185')}
+    ${chip('OPEX', opexPct, '#FB7185')}
+    ${chip('Payroll', payrollPct, '#FFC93C', '(inside OPEX)')}
+    ${chip('Depreciation', depPct, '#FB7185')}
+    ${chip('Tax', taxPct, '#FB7185')}
+    ${chip('Cost of Management', cmPct, '#FB7185')}
+    ${chip('Interest', interestPct, '#FB7185')}
+    ${chip('Net Margin', netMarginPct, netMarginPct>=0?'#4ADE80':'#FB7185')}
+  </div>`;
+}
+
+function faDriverStat(label, value, color){
+  return `<div style="background:#1C1840;border-radius:8px;padding:8px 12px;">
+    <div style="font-size:9.5px;color:#726C9C;text-transform:uppercase;margin-bottom:3px;">${label}</div>
+    <div class="mono" style="font-size:13px;font-weight:700;color:${color||'#F5F3FF'};">${value}</div>
+  </div>`;
+}
+
+function faRenderPerformanceDriverCard(ctx){
+  const mode = faAnalysisMode;
+  const pd = faPerformanceDriverAnalysis(ctx.indices, mode);
+  const modeSub = mode==='franchise'
+    ? 'Analysis based on Franchise P&L lens; revenue per channel, estimated product/return HPP, and real operating costs from Data.'
+    : 'Analysis based on recorded outlet P&L.';
+  const subNote = `<div style="font-size:10.5px;color:#726C9C;margin-bottom:12px;">${modeSub}</div>`;
+  if (!pd.available){
+    const msg = pd.noCurrentData
+      ? 'Tidak ada data (NO_DATA) untuk periode terpilih pada mode ini.'
+      : 'No comparable previous period available.';
+    return faCard('Performance Driver Analysis', `${subNote}<div style="font-size:12px;color:#726C9C;">${msg}</div>`);
+  }
+  const { cur, prev, bridge } = pd;
+  const changeRp = bridge.deltaNetProfit;
+  const changePct = (prev.netProfit && changeRp!=null) ? changeRp/Math.abs(prev.netProfit)*100 : null;
+  const marginChangePp = (bridge.curNetMarginPct!=null && bridge.prevNetMarginPct!=null) ? bridge.curNetMarginPct-bridge.prevNetMarginPct : null;
+
+  const summaryHtml = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:14px;">
+    ${faDriverStat('Current Net Profit', fmtRp(cur.netProfit))}
+    ${faDriverStat('Previous Net Profit', fmtRp(prev.netProfit))}
+    ${faDriverStat('Change', `${changeRp>=0?'+':''}${fmtRp(changeRp)}${changePct!=null?` (${changePct>=0?'+':''}${truncFixed(changePct,1)}%)`:''}`, changeRp>=0?'#4ADE80':'#FB7185')}
+    ${faDriverStat('Current Net Margin', bridge.curNetMarginPct!=null?truncFixed(bridge.curNetMarginPct,1)+'%':'-')}
+    ${faDriverStat('Previous Net Margin', bridge.prevNetMarginPct!=null?truncFixed(bridge.prevNetMarginPct,1)+'%':'-')}
+    ${faDriverStat('Margin Change', marginChangePp!=null?`${marginChangePp>=0?'+':''}${truncFixed(marginChangePp,1)}pp`:'-', marginChangePp==null?undefined:(marginChangePp>=0?'#4ADE80':'#FB7185'))}
+  </div>`;
+
+  const driverRows = bridge.drivers.map(d=>`<tr>
+      <td style="padding:7px 10px;font-size:12px;">${faEsc(d.name)}</td>
+      <td class="mono" style="padding:7px 10px;text-align:right;font-size:11.5px;">${d.prevVal!=null?fmtRp(d.prevVal):'-'}</td>
+      <td class="mono" style="padding:7px 10px;text-align:right;font-size:11.5px;">${d.curVal!=null?fmtRp(d.curVal):'-'}</td>
+      <td class="mono" style="padding:7px 10px;text-align:right;font-size:11.5px;">${d.delta!=null?fmtRp(d.delta):'-'}</td>
+      <td class="mono" style="padding:7px 10px;text-align:right;font-size:11.5px;font-weight:700;color:${d.impact>=0?'#4ADE80':'#FB7185'};">${d.impact>=0?'+':''}${fmtRp(d.impact)}</td>
+    </tr>`).join('');
+  const tableHtml = `<div class="tbl-wrap"><table><thead><tr>
+      <th style="text-align:left;">Driver</th><th>Previous</th><th>Current</th><th>Delta</th><th>Profit Impact</th>
+    </tr></thead><tbody>${driverRows}</tbody></table></div>`;
+
+  const listBlock = (title, list, color) => `<div style="min-width:200px;flex:1;">
+    <div style="font-size:10.5px;font-weight:700;color:${color};margin-bottom:6px;text-transform:uppercase;">${title}</div>
+    ${list.length ? list.map((d,i)=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid #2A2650;"><span>${i+1}. ${faEsc(d.name)}</span><span class="mono" style="color:${color};font-weight:700;">${d.impact>=0?'+':''}${fmtRp(d.impact)}</span></div>`).join('') : `<div style="font-size:11px;color:#726C9C;">Tidak ada driver signifikan.</div>`}
+  </div>`;
+  const topBlocks = `<div style="display:flex;flex-wrap:wrap;gap:20px;margin:14px 0;">
+    ${listBlock('Top Positive Drivers', bridge.positive, '#4ADE80')}
+    ${listBlock('Top Negative Drivers', bridge.negative, '#FB7185')}
+  </div>`;
+
+  const insight = `<div style="background:#171433;border:1px solid #2A2650;border-radius:8px;padding:10px 14px;font-size:12px;color:#C9C3E8;margin-top:12px;">${faEsc(faDriverInsightText(bridge))}</div>`;
+  const leakageLabel = `<div style="font-size:10.5px;font-weight:700;color:#9B93C4;text-transform:uppercase;margin:14px 0 4px;">Margin Leakage (% of Revenue)</div>`;
+  const leakage = faRenderMarginLeakageStrip(cur, mode, ctx.indices);
+  const reconLine = `<div style="margin-top:12px;padding:9px 14px;border-radius:8px;background:${bridge.reconciliationIssue?'#2A1B1B':'#14201A'};border:1px solid ${bridge.reconciliationIssue?'#FB7185':'#2E9E6B'};font-size:10.5px;">
+    ${bridge.reconciliationIssue?'⚠️ TIDAK REKONSILIASI':'✓ Rekonsiliasi'}: Previous Net Profit (${fmtRp(prev.netProfit)}) + Σ Driver Impacts (${fmtRp(bridge.totalShown)}) = ${fmtRp(prev.netProfit+bridge.totalShown)} ${bridge.reconciliationIssue?'≠':'='} Current Net Profit (${fmtRp(cur.netProfit)}).
+  </div>`;
+
+  return faCard('Performance Driver Analysis', `${subNote}${summaryHtml}${tableHtml}${topBlocks}${insight}${leakageLabel}${leakage}${reconLine}`);
 }
 
 // ===== Outlet Performance & Classification =====
@@ -870,7 +1088,9 @@ function faOutletRankingRowsBiasa(pm){
     const growthPct = (revenue!=null && kpiPrev && kpiPrev.revenue) ? (revenue-kpiPrev.revenue)/Math.abs(kpiPrev.revenue)*100 : null;
     const marginChangePct = (netMarginPct!=null && kpiPrev && kpiPrev.netMarginPct!=null) ? netMarginPct-kpiPrev.netMarginPct : null;
     const status = (revenue==null && netProfit==null) ? 'NO_DATA' : 'OK';
-    return { key:k, label:u.label, revenue, netProfit, netMarginPct, opexRatioPct, growthPct, marginChangePct, status };
+    const payroll = faPayrollAt(u, curIdx);
+    const payrollRatioPct = (revenue && payroll!=null) ? payroll/revenue*100 : null;
+    return { key:k, label:u.label, revenue, netProfit, netMarginPct, opexRatioPct, grossMarginPct:kpi.grossMarginPct, payrollRatioPct, growthPct, marginChangePct, status };
   });
   return { rows, rankings: faBuildOutletRankings(rows) };
 }
@@ -878,14 +1098,19 @@ function faOutletRankingRowsBiasa(pm){
 // formula yg sudah dipakai panel Franchise & Sanding Biasa vs Franchise,
 // tidak ada logika finansial baru diciptakan di sini. "Tersedia" = hasOnlineData
 // && jumlahPendapatan != 0 (bulan tanpa data Online ATAU nol dilompati).
+// Payroll TETAP dari UNIT_DATA (Data REAL), SAMA sumbernya dgn mode Biasa --
+// bukan bagian dari computeFranchiseOutlet(), ditambahkan di sini saja.
 function faOutletRankingRowsFranchise(pm){
   const curIdx = pm.idx;
   const rows = OUTLET_KEYS.map(k=>{
     const d = computeFranchiseOutlet(k, [curIdx]);
-    if (!d.hasOnlineData) return { key:k, label:UNIT_DATA[k].label, revenue:null, netProfit:null, netMarginPct:null, opexRatioPct:null, growthPct:null, marginChangePct:null, status:'NO_DATA' };
+    if (!d.hasOnlineData) return { key:k, label:UNIT_DATA[k].label, revenue:null, netProfit:null, netMarginPct:null, opexRatioPct:null, grossMarginPct:null, payrollRatioPct:null, growthPct:null, marginChangePct:null, status:'NO_DATA' };
     const revenue = d.jumlahPendapatan, netProfit = d.labaBersih;
     const netMarginPct = revenue ? netProfit/revenue*100 : null;
     const opexRatioPct = revenue ? d.biayaOps/revenue*100 : null;
+    const grossMarginPct = revenue ? d.labaKotor/revenue*100 : null;
+    const payroll = faPayrollAt(UNIT_DATA[k], curIdx);
+    const payrollRatioPct = (revenue && payroll!=null) ? payroll/revenue*100 : null;
     const prevIdx = faFindPrevAvailableIdx(curIdx, i => { const dp = computeFranchiseOutlet(k, [i]); return dp.hasOnlineData && dp.jumlahPendapatan != 0; });
     let growthPct = null, marginChangePct = null;
     if (prevIdx!=null){
@@ -894,12 +1119,37 @@ function faOutletRankingRowsFranchise(pm){
       const prevMarginPct = dPrev.labaBersih/dPrev.jumlahPendapatan*100;
       marginChangePct = netMarginPct!=null ? netMarginPct-prevMarginPct : null;
     }
-    return { key:k, label:UNIT_DATA[k].label, revenue, netProfit, netMarginPct, opexRatioPct, growthPct, marginChangePct, status:'OK' };
+    return { key:k, label:UNIT_DATA[k].label, revenue, netProfit, netMarginPct, opexRatioPct, grossMarginPct, payrollRatioPct, growthPct, marginChangePct, status:'OK' };
   });
   return { rows, rankings: faBuildOutletRankings(rows) };
 }
-let faOutletRankMode = 'biasa'; // 'biasa' | 'franchise' -- default Biasa, per spek
-function faSetOutletRankMode(m){ faOutletRankMode = m; renderFinancialAnalysis(); }
+// Klasifikasi MODE-AWARE (section 19) -- dipakai HANYA utk tabel Outlet
+// Performance mode Franchise (mode Biasa TETAP pakai classification aslinya
+// dari faOutletPerformance()/ctx.outletPerf, TIDAK diganti/disentuh).
+// Filosofi SAMA persis dgn faOutletPerformance(): NO DATA -> CRITICAL (net
+// profit negatif) -> WATCHLIST (margin turun material) -> STAR (revenue &
+// margin di atas median) -> GROWTH (growth positif) -> STABLE. Bedanya:
+// "margin turun material" & "growth" di sini pakai marginChangePct/growthPct
+// (vs bulan sebelumnya YG PUNYA DATA, faFindPrevAvailableIdx) krn Franchise
+// belum py helper tren 6-bulan spt faTrendClassify yg dipakai mode Biasa --
+// KETERBATASAN INI DILAPORKAN, bukan dipalsukan seakan setara.
+function faClassifyPerformanceRow(row, allRows){
+  if (row.status==='NO_DATA') return 'NO DATA';
+  if (row.netProfit!=null && row.netProfit<0) return 'CRITICAL';
+  if (row.marginChangePct!=null && row.marginChangePct < -FA_CONFIG.gross_margin_drop_threshold) return 'WATCHLIST';
+  const revs = allRows.map(r=>r.revenue).filter(v=>v!=null).sort((a,b)=>a-b);
+  const margins = allRows.map(r=>r.netMarginPct).filter(v=>v!=null).sort((a,b)=>a-b);
+  const medianRev = revs.length ? revs[Math.floor(revs.length/2)] : null;
+  const medianMargin = margins.length ? margins[Math.floor(margins.length/2)] : null;
+  if (medianRev!=null && medianMargin!=null && row.revenue>=medianRev && row.netMarginPct!=null && row.netMarginPct>=medianMargin) return 'STAR';
+  if (row.growthPct!=null && row.growthPct>2) return 'GROWTH';
+  return 'STABLE';
+}
+// SATU state dipakai bersama oleh Outlet Performance, Outlet Ranking, DAN
+// Performance Driver Analysis (bukan toggle terpisah per section) -- default
+// Biasa, ganti mode TAK reload halaman (renderFinancialAnalysis() saja).
+let faAnalysisMode = 'biasa'; // 'biasa' | 'franchise'
+function faSetAnalysisMode(m){ faAnalysisMode = m; renderFinancialAnalysis(); }
 
 // ===== Red Flags / Opportunities / Action Plan (rule-based, bukan AI) =====
 function faGenerateInsights(ctx){
@@ -1036,9 +1286,9 @@ function faBuildContext(unitKey){
   const expenseRows = faExpenseAnalysis(u, unitKey, pm);
   const dataCompleteness = faDataCompleteness(u, unitKey, pm);
 
-  let outletPerf = null, ownClassification = null, groupReconciliation = null, outletRankBiasa = null, outletRankFranchise = null;
+  let outletPerf = null, ownClassification = null, outletRankBiasa = null, outletRankFranchise = null;
   if (unitKey==='konsolidasi') {
-    outletPerf = faOutletPerformance(pm); groupReconciliation = faGroupReconciliation(pm);
+    outletPerf = faOutletPerformance(pm);
     outletRankBiasa = faOutletRankingRowsBiasa(pm); outletRankFranchise = faOutletRankingRowsFranchise(pm);
   }
   else { const full = faOutletPerformance(pm); const mine = full.rows.find(r=>r.key===unitKey); ownClassification = mine ? mine.classification : null; }
@@ -1048,7 +1298,7 @@ function faBuildContext(unitKey){
   const insights = faGenerateInsights({ pm, kpi, health, trendRevenue, trendNetProfit, drivers, anomalies, expenseRows, outletPerf, unitKey, u });
 
   return { unitKey, u, indices, isSingleMonth, isRangeWithOpenMonth, pm, kpi, kpiBase, kpiForCompare, cmpOptions, cmpOpt, baseIndices, trendRevenue, trendNetProfit,
-    drivers, anomalies, expenseRows, dataCompleteness, outletPerf, ownClassification, groupReconciliation, outletRankBiasa, outletRankFranchise, forecast, health, insights };
+    drivers, anomalies, expenseRows, dataCompleteness, outletPerf, ownClassification, outletRankBiasa, outletRankFranchise, forecast, health, insights };
 }
 
 /* ============================== AI layer ============================== */
@@ -1152,8 +1402,8 @@ function faRenderPeriodPickerPanel(){
     return `<div class="fa-month-cell ${on?'on':''}" onclick="faToggleDraftMonth(${i})">${periodLabel(p,true)}</div>`;
   }).join('');
   return `<div id="faPeriodPickerPanel">
-    <div class="fa-period-backdrop open" onclick="faTogglePeriodPicker()"></div>
-    <div class="fa-period-panel">
+    <div class="fa-period-backdrop open" onclick="event.stopPropagation();faTogglePeriodPicker()"></div>
+    <div class="fa-period-panel" onclick="event.stopPropagation()">
       <div style="font-size:10.5px;font-weight:700;color:#9B93C4;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Quick Select</div>
       <div class="fa-preset-row">${presetsHtml}</div>
       <div style="font-size:10.5px;font-weight:700;color:#9B93C4;text-transform:uppercase;letter-spacing:.06em;margin:10px 0 8px;">Custom (pilih bulan)</div>
@@ -1607,29 +1857,24 @@ function faRenderExpensePage(ctx){
 
 /* ---- Outlet tab ---- */
 function faClassColor(c){ return ({ STAR:'#FFC93C', GROWTH:'#4ADE80', STABLE:'#4FC3F7', WATCHLIST:'#FF9F43', CRITICAL:'#FB7185' })[c] || '#726C9C'; }
-function faRenderReconciliation(ctx){
-  if (!ctx.groupReconciliation) return '';
-  const rows = ctx.groupReconciliation.map(m=>{
-    const gapKnown = m.gap!=null;
-    const gapLabel = !gapKnown ? 'Not Available (data outlet belum lengkap)'
-      : Math.abs(m.gap) < 1 ? 'Rekonsiliasi penuh (Rp0)'
-      : `${fmtRp(m.gap)} — ${m.gapNature}`;
-    return `<tr>
-      <td style="padding:9px 14px;font-size:12.5px;">${m.label}</td>
-      <td class="mono" style="padding:9px 14px;text-align:right;font-size:12px;">${fmtRp(m.groupVal)}</td>
-      <td class="mono" style="padding:9px 14px;text-align:right;font-size:12px;">${m.outletSum!=null?fmtRp(m.outletSum):'-'}</td>
-      <td style="padding:9px 14px;text-align:right;font-size:11.5px;color:${gapKnown&&Math.abs(m.gap)>=1?'#FFC93C':'#726C9C'};">${gapLabel}</td>
-    </tr>`;
-  }).join('');
-  const body = `<div class="tbl-wrap"><table><thead><tr>
-      <th style="text-align:left;">Metrik</th><th>Group (Konsolidasi)</th><th>Jumlah 14 Outlet</th><th style="text-align:right;">Selisih</th>
-    </tr></thead><tbody>${rows}</tbody></table></div>
-    <div style="font-size:10.5px;color:#726C9C;margin-top:8px;">Group mencakup Manufaktur, Head Office, Ownership, dan channel di luar 14 outlet fisik -- selisih ini SAH secara akuntansi dan TIDAK didistribusikan diam2 ke outlet manapun. Rincian persis per entity (Manufaktur vs Head Office vs eliminasi intercompany) tidak ditampilkan di sini krn tidak bisa diverifikasi tanpa analisis Counterparty per baris.</div>`;
-  return faCard('Group Reconciliation — Group vs Jumlah Outlet', body);
+// Segmented toggle Biasa|Franchise -- SATU dipakai bareng oleh Outlet
+// Performance, Outlet Ranking, DAN Performance Driver Analysis (faAnalysisMode).
+// Style pill sama persis dgn setDiffMethod() di index.php.
+function faRenderAnalysisModeToggle(){
+  const btn = (val,label)=>{
+    const on = faAnalysisMode===val;
+    return `<div onclick="faSetAnalysisMode('${val}')" style="cursor:pointer;padding:5px 12px;border-radius:20px;font-size:11.5px;font-weight:600;font-family:'Space Grotesk',sans-serif;border:1px solid ${on?'#FFC93C':'#2A2650'};color:${on?'#FFC93C':'#726C9C'};background:${on?'#FFC93C22':'transparent'};">${label}</div>`;
+  };
+  return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+    <span style="font-size:10.5px;font-weight:700;color:#9B93C4;text-transform:uppercase;">Analysis Mode</span>
+    <div style="display:flex;gap:6px;">${btn('biasa','Biasa')}${btn('franchise','Franchise')}</div>
+  </div>`;
 }
 
-function faRenderOutletPage(ctx){
-  if (!ctx.outletPerf) return faCard('Outlet Performance', `<div style="font-size:12.5px;color:#726C9C;">Pilih "Semua Outlet (Group)" di filter atas untuk melihat perbandingan antar outlet.</div>`);
+// Tabel "Outlet Performance" mode BIASA -- ctx.outletPerf.rows APA ADANYA,
+// TIDAK diubah (kolom, classification, trend, contribution -- semua persis
+// spt sebelumnya).
+function faRenderOutletPerformanceTableBiasa(ctx){
   const rows = [...ctx.outletPerf.rows].sort((a,b)=>(b.revenue||0)-(a.revenue||0));
   const tr = rows.map(r=>`<tr>
       <td style="padding:10px 14px;font-size:12.5px;">${faEsc(r.label)}</td>
@@ -1644,29 +1889,48 @@ function faRenderOutletPage(ctx){
       <td style="padding:10px 14px;font-size:11.5px;">${r.trend}</td>
       <td style="padding:10px 14px;text-align:center;"><span style="background:${faClassColor(r.classification)}22;color:${faClassColor(r.classification)};border:1px solid ${faClassColor(r.classification)};border-radius:8px;padding:2px 8px;font-size:10.5px;font-weight:700;">${r.classification}</span></td>
     </tr>`).join('');
-  const table = `<div class="tbl-wrap"><table><thead><tr>
+  return `<div class="tbl-wrap"><table><thead><tr>
       <th style="text-align:left;">Outlet</th><th>Revenue</th><th>Growth</th><th>GP Margin</th><th>OPEX %</th><th>Payroll %</th>
       <th>Net Profit</th><th>Net Margin</th><th>Contribution</th><th style="text-align:left;">Trend</th><th>Status</th>
     </tr></thead><tbody>${tr}</tbody></table></div>`;
+}
+// Tabel "Outlet Performance" mode FRANCHISE -- basis ctx.outletRankFranchise
+// (computeFranchiseOutlet, sudah dihitung sekali di faBuildContext), kolom
+// SESUAI spek section 4 (tanpa Contribution/Trend -- lihat catatan laporan:
+// belum ada helper tren multi-bulan utk Franchise, tak dipaksakan supaya
+// tak berpura2 setara dgn mode Biasa).
+function faRenderOutletPerformanceTableFranchise(ctx){
+  const allRows = ctx.outletRankFranchise.rows;
+  const rows = [...allRows].sort((a,b)=>(b.revenue||0)-(a.revenue||0));
+  const tr = rows.map(r=>{
+    const cls = faClassifyPerformanceRow(r, allRows);
+    return `<tr>
+      <td style="padding:10px 14px;font-size:12.5px;">${faEsc(r.label)}</td>
+      <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${r.revenue!=null?fmtRp(r.revenue):'-'}</td>
+      <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${r.growthPct!=null?fmtPct(r.growthPct):'-'}</td>
+      <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${r.grossMarginPct!=null?truncFixed(r.grossMarginPct,1)+'%':'-'}</td>
+      <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${r.opexRatioPct!=null?truncFixed(r.opexRatioPct,1)+'%':'-'}</td>
+      <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${r.payrollRatioPct!=null?truncFixed(r.payrollRatioPct,1)+'%':'-'}</td>
+      <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${r.netProfit!=null?fmtRp(r.netProfit):'-'}</td>
+      <td class="mono" style="padding:10px 14px;text-align:right;font-size:12px;">${r.netMarginPct!=null?truncFixed(r.netMarginPct,1)+'%':'-'}</td>
+      <td style="padding:10px 14px;text-align:center;"><span style="background:${faClassColor(cls)}22;color:${faClassColor(cls)};border:1px solid ${faClassColor(cls)};border-radius:8px;padding:2px 8px;font-size:10.5px;font-weight:700;">${cls}</span></td>
+    </tr>`;
+  }).join('');
+  return `<div class="tbl-wrap"><table><thead><tr>
+      <th style="text-align:left;">Outlet</th><th>Revenue</th><th>Growth</th><th>GP Margin</th><th>OPEX %</th><th>Payroll %</th>
+      <th>Net Profit</th><th>Net Margin</th><th>Status</th>
+    </tr></thead><tbody>${tr}</tbody></table></div>
+    <div style="font-size:10px;color:#726C9C;margin-top:8px;">Franchise: revenue per-kanal dari tab Online, HPP Produk (60%) + HPP Retur (1.8%) estimasi, HPP Konsinyasi/Pembelian Langsung & baris di bawah HPP tetap dari sheet Data (computeFranchiseOutlet). Outlet tanpa data Online periode ini ditandai NO DATA, bukan performer nol.</div>`;
+}
 
-  // Toggle Biasa|Franchise -- style pill sama persis dgn setDiffMethod() di
-  // index.php, supaya konsisten dgn UI dashboard yg sudah ada. Ganti mode TAK
-  // memanggil ulang computeFranchiseOutlet dari sini (sudah dihitung sekali
-  // di faBuildContext utk kedua mode) -- cuma pilih dataset mana yg dipakai
-  // & renderFinancialAnalysis() ulang, tak ada reload halaman.
-  const rankModeBtn = (val,label)=>{
-    const on = faOutletRankMode===val;
-    return `<div onclick="faSetOutletRankMode('${val}')" style="cursor:pointer;padding:5px 12px;border-radius:20px;font-size:11.5px;font-weight:600;font-family:'Space Grotesk',sans-serif;border:1px solid ${on?'#FFC93C':'#2A2650'};color:${on?'#FFC93C':'#726C9C'};background:${on?'#FFC93C22':'transparent'};">${label}</div>`;
-  };
-  const rankModeToggle = `<div style="display:flex;gap:6px;">${rankModeBtn('biasa','Biasa')}${rankModeBtn('franchise','Franchise')}</div>`;
-
-  const rankSrc = faOutletRankMode==='franchise' ? ctx.outletRankFranchise : ctx.outletRankBiasa;
+function faRenderOutletRankingCard(ctx){
+  const rankSrc = faAnalysisMode==='franchise' ? ctx.outletRankFranchise : ctx.outletRankBiasa;
   const rk = rankSrc.rankings;
   const rankBlock = (title, list, key, fmt, absMagnitude)=> `<div style="min-width:220px;flex:1;">
     <div style="font-size:10.5px;font-weight:700;color:#9B93C4;margin-bottom:6px;text-transform:uppercase;">${title}</div>
     ${list.length ? list.map((r,i)=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid #2A2650;"><span>${i+1}. ${faEsc(r.label)}</span><span class="mono">${fmt(absMagnitude?Math.abs(r[key]):r[key])}</span></div>`).join('') : `<div style="font-size:11px;color:#726C9C;">-</div>`}
   </div>`;
-  const modeNote = faOutletRankMode==='franchise'
+  const modeNote = faAnalysisMode==='franchise'
     ? 'Ranking uses Franchise P&L lens (revenue per-kanal Online tab, HPP Produk/Retur estimasi 60%/1.8%, OPEX dst tetap dari sheet Data).'
     : 'Ranking uses recorded P&L (Data / buku besar apa adanya).';
   const rankings = `<div style="font-size:11px;color:#726C9C;margin-bottom:14px;">${modeNote}</div>
@@ -1680,7 +1944,17 @@ function faRenderOutletPage(ctx){
     ${rankBlock('Highest Expense Ratio', rk.highestExpenseRatio, 'opexRatioPct', v=>truncFixed(v,1)+'%')}
     ${rankBlock('Lowest Profitability', rk.lowestProfitability, 'netMarginPct', v=>truncFixed(v,1)+'%')}
   </div>`;
-  return faRenderReconciliation(ctx) + faCard('Outlet Performance', table) + faCard('Outlet Ranking (Top 5)', rankings, rankModeToggle);
+  return faCard('Outlet Ranking (Top 5)', rankings);
+}
+
+function faRenderOutletPage(ctx){
+  if (!ctx.outletPerf) return faCard('Outlet Performance', `<div style="font-size:12.5px;color:#726C9C;">Pilih "Semua Outlet (Group)" di filter atas untuk melihat perbandingan antar outlet.</div>`);
+  const modeToggle = faRenderAnalysisModeToggle();
+  const perfTable = faAnalysisMode==='franchise' ? faRenderOutletPerformanceTableFranchise(ctx) : faRenderOutletPerformanceTableBiasa(ctx);
+  return modeToggle
+    + faRenderPerformanceDriverCard(ctx)
+    + faCard('Outlet Performance', perfTable)
+    + faRenderOutletRankingCard(ctx);
 }
 
 /* ---- Forecast tab ---- */
