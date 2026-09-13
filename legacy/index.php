@@ -4930,6 +4930,7 @@ function computeCabangDiffBlock(outletKey, selMonths){
     { name:'Pendapatan Bersih', v:d.pendapatanBersih, hl:true },
     { name:'HPP Produk Online (60%)', v:-d.hppOnline, est:true },
     { name:'HPP Produk Offline (60%)', v:-d.hppOffline, est:true },
+    { name:'HPP Retur (1.8%)', v:-d.hppRetur, est:true },
     { name:'HPP Konsinyasi', v:-d.hppKonsinyasi },
     ...(d.hppPembelianLangsung ? [{ name:'HPP Pembelian Langsung', v:-d.hppPembelianLangsung }] : []),
     { name:'Jumlah HPP', v:-d.jumlahHpp, sub:true },
